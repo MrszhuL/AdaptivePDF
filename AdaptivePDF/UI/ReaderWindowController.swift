@@ -2,12 +2,16 @@ import AppKit
 import PDFKit
 
 final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTableViewDataSource,
-                                    NSTableViewDelegate, NSSearchFieldDelegate, NSMenuItemValidation, NSWindowDelegate {
+                                    NSTableViewDelegate, NSSearchFieldDelegate, NSMenuItemValidation, NSWindowDelegate,
+                                    NSToolbarItemValidation {
     unowned let readerDocument: PDFReaderDocument
     private(set) var pdf: PDFDocument
     let pdfView = ReaderPDFView(frame: .zero)
     private let split = NSSplitView()
-    private let sidebar = NSView()
+    private let sidebar = ReaderSurface(fill: ReaderStyle.sidebar)
+    private let sidebarHeading = NSTextField(labelWithString: "文档导航")
+    private let sidebarDetail = NSTextField(labelWithString: "")
+    private let emptyState = ReaderEmptyState()
     private let sidebarTabs = NSSegmentedControl(labels: ["页面", "批注", "搜索"], trackingMode: .selectOne, target: nil, action: nil)
     let thumbnails = PDFThumbnailSidebar()
     private let list = AnnotationTableView()
@@ -16,6 +20,10 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
     private let pageField = NSTextField(string: "1")
     private let pageCount = NSTextField(labelWithString: "/ 0")
     private let status = NSTextField(labelWithString: "")
+    private let statusIcon = NSImageView()
+    private let readingInfo = NSTextField(labelWithString: "")
+    private let previousButton = NSButton()
+    private let nextButton = NSButton()
     private let themePopup = NSPopUpButton()
     private let colorPopup = NSPopUpButton()
     private let displayPopup = NSPopUpButton()
@@ -64,6 +72,7 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
         center.addObserver(self, selector: #selector(appearanceChanged), name: AppearancePreferences.changed, object: nil)
         center.addObserver(self, selector: #selector(annotationsChanged(_:)), name: .readerAnnotationsChanged, object: readerDocument)
         center.addObserver(self, selector: #selector(pageChanged), name: .PDFViewPageChanged, object: pdfView)
+        center.addObserver(self, selector: #selector(pageChanged), name: .PDFViewScaleChanged, object: pdfView)
         center.addObserver(self, selector: #selector(textSelectionChanged), name: .PDFViewSelectionChanged, object: pdfView)
         center.addObserver(self, selector: #selector(foundMatch(_:)), name: .PDFDocumentDidFindMatch, object: pdf)
         center.addObserver(self, selector: #selector(searchEnded), name: .PDFDocumentDidEndFind, object: pdf)
@@ -132,30 +141,64 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
         split.dividerStyle = .thin
         split.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(split)
-        status.font = .systemFont(ofSize: 11)
+        let footer = ReaderSurface(fill: ReaderStyle.footer)
+        footer.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(footer)
+        let separator = NSBox()
+        separator.boxType = .separator
+        separator.translatesAutoresizingMaskIntoConstraints = false
+        footer.addSubview(separator)
+        status.font = .systemFont(ofSize: 10)
         status.textColor = .secondaryLabelColor
         status.lineBreakMode = .byTruncatingTail
         status.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(status)
+        footer.addSubview(status)
+        statusIcon.image = ReaderStyle.symbol("circle.lefthalf.filled",size: 11)
+        statusIcon.contentTintColor = .secondaryLabelColor
+        statusIcon.translatesAutoresizingMaskIntoConstraints = false
+        footer.addSubview(statusIcon)
+        readingInfo.font = .monospacedDigitSystemFont(ofSize: 10,weight: .regular)
+        readingInfo.textColor = .secondaryLabelColor
+        readingInfo.setContentCompressionResistancePriority(.required,for: .horizontal)
+        readingInfo.translatesAutoresizingMaskIntoConstraints = false
+        footer.addSubview(readingInfo)
         NSLayoutConstraint.activate([
             split.topAnchor.constraint(equalTo: content.topAnchor),
             split.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             split.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            split.bottomAnchor.constraint(equalTo: status.topAnchor, constant: -5),
-            status.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 12),
-            status.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -12),
-            status.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -6),
-            status.heightAnchor.constraint(equalToConstant: 16)
+            split.bottomAnchor.constraint(equalTo: footer.topAnchor),
+            footer.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            footer.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            footer.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            footer.heightAnchor.constraint(equalToConstant: 30),
+            separator.topAnchor.constraint(equalTo: footer.topAnchor),
+            separator.leadingAnchor.constraint(equalTo: footer.leadingAnchor),
+            separator.trailingAnchor.constraint(equalTo: footer.trailingAnchor),
+            statusIcon.leadingAnchor.constraint(equalTo: footer.leadingAnchor,constant: 14),
+            statusIcon.centerYAnchor.constraint(equalTo: footer.centerYAnchor),
+            statusIcon.widthAnchor.constraint(equalToConstant: 12), statusIcon.heightAnchor.constraint(equalToConstant: 12),
+            status.leadingAnchor.constraint(equalTo: statusIcon.trailingAnchor,constant: 7),
+            status.centerYAnchor.constraint(equalTo: footer.centerYAnchor),
+            status.trailingAnchor.constraint(lessThanOrEqualTo: readingInfo.leadingAnchor,constant: -18),
+            readingInfo.trailingAnchor.constraint(equalTo: footer.trailingAnchor,constant: -16),
+            readingInfo.centerYAnchor.constraint(equalTo: footer.centerYAnchor)
         ])
-        sidebar.frame.size.width = 240
+        sidebar.frame.size.width = 224
         split.addArrangedSubview(sidebar)
         split.addArrangedSubview(pdfView)
         split.setHoldingPriority(.defaultHigh, forSubviewAt: 0)
-        sidebar.widthAnchor.constraint(greaterThanOrEqualToConstant: 180).isActive = true
-        sidebar.widthAnchor.constraint(lessThanOrEqualToConstant: 420).isActive = true
+        sidebar.widthAnchor.constraint(greaterThanOrEqualToConstant: 190).isActive = true
+        sidebar.widthAnchor.constraint(lessThanOrEqualToConstant: 360).isActive = true
+        sidebarHeading.font = .systemFont(ofSize: 13,weight: .semibold)
+        sidebarDetail.font = .systemFont(ofSize: 10)
+        sidebarDetail.textColor = .secondaryLabelColor
+        for label in [sidebarHeading,sidebarDetail] { label.translatesAutoresizingMaskIntoConstraints = false; sidebar.addSubview(label) }
         sidebarTabs.target = self
         sidebarTabs.action = #selector(sidebarTabChanged)
         sidebarTabs.selectedSegment = 0
+        sidebarTabs.font = .systemFont(ofSize: 11,weight: .medium)
+        sidebarTabs.segmentStyle = .rounded
+        sidebarTabs.segmentDistribution = .fill
         sidebarTabs.translatesAutoresizingMaskIntoConstraints = false
         sidebar.addSubview(sidebarTabs)
         thumbnails.translatesAutoresizingMaskIntoConstraints = false
@@ -163,12 +206,15 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
         listScroll.translatesAutoresizingMaskIntoConstraints = false
         listScroll.hasVerticalScroller = true
         listScroll.borderType = .noBorder
+        listScroll.drawsBackground = false
         listScroll.documentView = list
         list.headerView = nil
         list.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("entry")))
         list.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
-        list.rowHeight = 76
-        list.intercellSpacing = NSSize(width: 0, height: 3)
+        list.backgroundColor = .clear
+        list.rowHeight = 88
+        list.intercellSpacing = .zero
+        list.focusRingType = .none
         list.dataSource = self
         list.delegate = self
         list.target = self
@@ -180,45 +226,53 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
         contextMenu.addItem(withTitle: "删除批注", action: #selector(deleteAnnotation(_:)), keyEquivalent: "")
         list.menu = contextMenu
         sidebar.addSubview(listScroll)
-        for view in [thumbnails, listScroll] {
+        emptyState.translatesAutoresizingMaskIntoConstraints = false
+        sidebar.addSubview(emptyState)
+        for view in [thumbnails, listScroll,emptyState] {
             NSLayoutConstraint.activate([
-                view.topAnchor.constraint(equalTo: sidebarTabs.bottomAnchor, constant: 8),
+                view.topAnchor.constraint(equalTo: sidebarTabs.bottomAnchor, constant: 10),
                 view.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor),
                 view.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor),
                 view.bottomAnchor.constraint(equalTo: sidebar.bottomAnchor)
             ])
         }
         NSLayoutConstraint.activate([
-            sidebarTabs.topAnchor.constraint(equalTo: sidebar.topAnchor, constant: 10),
-            sidebarTabs.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 10),
-            sidebarTabs.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -10)
+            sidebarHeading.topAnchor.constraint(equalTo: sidebar.topAnchor,constant: 19),
+            sidebarHeading.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor,constant: 18),
+            sidebarDetail.topAnchor.constraint(equalTo: sidebarHeading.bottomAnchor,constant: 5),
+            sidebarDetail.leadingAnchor.constraint(equalTo: sidebarHeading.leadingAnchor),
+            sidebarTabs.topAnchor.constraint(equalTo: sidebarDetail.bottomAnchor, constant: 15),
+            sidebarTabs.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 14),
+            sidebarTabs.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -14),
+            sidebarTabs.heightAnchor.constraint(equalToConstant: 26)
         ])
         sidebarTabChanged()
     }
 
     private func buildToolbar() {
-        let toolbar = NSToolbar(identifier: "ReaderToolbar")
+        let toolbar = NSToolbar(identifier: "ReaderToolbarV2")
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
         toolbar.allowsUserCustomization = true
         toolbar.autosavesConfiguration = true
         window?.toolbar = toolbar
-        window?.toolbarStyle = .unified
+        window?.toolbarStyle = .unifiedCompact
     }
-    private let toolbarNames = ["open", "previous", "next", "page", "zoomOut", "zoomIn", "fit", "display", "highlight", "color", "comment", "note", "theme", "search"]
+    private let toolbarNames = ["sidebar", "open", "previous", "next", "page", "zoom", "zoomOut", "zoomIn", "fit", "display", "highlight", "color", "comment", "note", "theme", "search"]
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         toolbarNames.map { .init($0) } + [.flexibleSpace, .space]
     }
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        ["open", "previous", "next", "page", "zoomOut", "zoomIn", "fit", "display", "highlight", "color", "comment", "note", "theme", "search"].map { .init($0) }
+        ["sidebar", "page", NSToolbarItem.Identifier.flexibleSpace.rawValue, "zoom", "display", "highlight", "color", "comment", "note", NSToolbarItem.Identifier.flexibleSpace.rawValue, "theme", "search"].map { .init($0) }
     }
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
         let item = NSToolbarItem(itemIdentifier: identifier)
         let actions: [String: (String, String, Selector)] = [
+            "sidebar": ("显示或隐藏侧栏 ⌘⌥D", "sidebar.left", #selector(toggleSidebar(_:))),
             "open": ("打开 PDF", "folder", #selector(NSDocumentController.openDocument(_:))),
-            "previous": ("上一页", "chevron.up", #selector(previousPage(_:))),
-            "next": ("下一页", "chevron.down", #selector(nextPage(_:))),
+            "previous": ("上一页", "chevron.left", #selector(previousPage(_:))),
+            "next": ("下一页", "chevron.right", #selector(nextPage(_:))),
             "zoomOut": ("缩小", "minus.magnifyingglass", #selector(zoomOut(_:))),
             "zoomIn": ("放大", "plus.magnifyingglass", #selector(zoomIn(_:))),
             "fit": ("适合页面", "arrow.up.left.and.arrow.down.right", #selector(fitPage(_:))),
@@ -232,42 +286,90 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
             item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
             item.target = identifier.rawValue == "open" ? NSDocumentController.shared : self
             item.action = action
+            if identifier.rawValue == "sidebar" { item.visibilityPriority = .high }
+            if ["comment","note"].contains(identifier.rawValue) { item.visibilityPriority = .low }
         } else {
             switch identifier.rawValue {
             case "page":
-                pageField.alignment = .right
+                pageField.alignment = .center
+                pageField.isBezeled = false
+                pageField.drawsBackground = false
+                pageField.font = .monospacedDigitSystemFont(ofSize: 12,weight: .medium)
                 pageField.target = self
                 pageField.action = #selector(goToPage(_:))
                 pageField.setAccessibilityLabel("页码")
                 pageField.setAccessibilityIdentifier("pageNumber")
-                pageField.widthAnchor.constraint(equalToConstant: 42).isActive = true
-                pageCount.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-                let stack = NSStackView(views: [pageField, pageCount])
-                stack.spacing = 4
-                item.view = stack
+                pageField.widthAnchor.constraint(equalToConstant: 30).isActive = true
+                pageCount.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+                pageCount.textColor = .secondaryLabelColor
+                for (button,symbol,title,action) in [(previousButton,"chevron.left","上一页",#selector(previousPage(_:))),
+                                                     (nextButton,"chevron.right","下一页",#selector(nextPage(_:)))] {
+                    button.image = ReaderStyle.symbol(symbol,size: 11,weight: .medium)
+                    button.bezelStyle = .inline
+                    button.isBordered = false
+                    button.target = self; button.action = action
+                    button.toolTip = title; button.setAccessibilityLabel(title)
+                    button.widthAnchor.constraint(equalToConstant: 24).isActive = true
+                }
+                let stack = NSStackView(views: [previousButton,pageField,pageCount,nextButton])
+                stack.spacing = 2
+                let capsule = ReaderSurface(fill: ReaderStyle.control,radius: 7,stroke: ReaderStyle.border)
+                stack.translatesAutoresizingMaskIntoConstraints = false; capsule.addSubview(stack)
+                NSLayoutConstraint.activate([
+                    stack.leadingAnchor.constraint(equalTo: capsule.leadingAnchor,constant: 3),
+                    stack.trailingAnchor.constraint(equalTo: capsule.trailingAnchor,constant: -3),
+                    stack.centerYAnchor.constraint(equalTo: capsule.centerYAnchor),
+                    capsule.heightAnchor.constraint(equalToConstant: 28)
+                ])
+                item.view = capsule
                 item.label = "页码"
+                item.visibilityPriority = .high
+            case "zoom":
+                let zoom = NSSegmentedControl(images: [ReaderStyle.symbol("minus")!,ReaderStyle.symbol("arrow.up.left.and.arrow.down.right")!,ReaderStyle.symbol("plus")!], trackingMode: .momentary,target: self,action: #selector(zoomChanged(_:)))
+                zoom.segmentStyle = .rounded
+                zoom.controlSize = .small
+                for (index,title) in ["缩小","适合页面","放大"].enumerated() { zoom.setToolTip(title,forSegment: index); zoom.setWidth(28,forSegment: index) }
+                zoom.setAccessibilityLabel("缩放")
+                item.view = zoom; item.label = "缩放"
             case "search":
-                searchField.placeholderString = "搜索全文 ⌘F"
+                searchField.placeholderString = "搜索文档"
                 searchField.setAccessibilityLabel("全文搜索")
                 searchField.setAccessibilityIdentifier("fullTextSearch")
                 searchField.delegate = self
                 searchField.target = self
                 searchField.action = #selector(searchNow(_:))
-                searchField.widthAnchor.constraint(equalToConstant: 170).isActive = true
-                item.view = searchField
-                item.label = "搜索"
+                let search = NSSearchToolbarItem(itemIdentifier: identifier)
+                search.searchField = searchField
+                search.preferredWidthForSearchField = 180
+                search.visibilityPriority = .high
+                search.label = "搜索"
+                return search
             case "theme":
-                for mode in ThemeMode.allCases { themePopup.addItem(withTitle: mode.title) }
+                for (title,symbol) in [("跟随系统","circle.lefthalf.filled"),("浅色","sun.max"),("深色","moon")] {
+                    themePopup.addItem(withTitle: title)
+                    themePopup.lastItem?.image = ReaderStyle.symbol(symbol,size: 12)
+                }
                 themePopup.target = self
                 themePopup.action = #selector(themeChanged(_:))
-                themePopup.widthAnchor.constraint(equalToConstant: 145).isActive = true
+                themePopup.bezelStyle = .texturedRounded
+                (themePopup.cell as? NSPopUpButtonCell)?.arrowPosition = .arrowAtBottom
+                themePopup.font = .systemFont(ofSize: 11,weight: .medium)
+                themePopup.widthAnchor.constraint(equalToConstant: 102).isActive = true
                 themePopup.toolTip = "深色阅读会同时改变 PDF 页面；保持原色见「显示」菜单"
                 themePopup.setAccessibilityLabel("阅读外观")
                 themePopup.setAccessibilityIdentifier("readingTheme")
                 item.view = themePopup
                 item.label = "阅读外观"
+                item.visibilityPriority = .high
             case "color":
-                for color in HighlightColor.allCases { colorPopup.addItem(withTitle: color.title) }
+                for color in HighlightColor.allCases {
+                    colorPopup.addItem(withTitle: color.title)
+                    colorPopup.lastItem?.image = ReaderStyle.swatch(color.color)
+                }
+                colorPopup.imagePosition = .imageOnly
+                colorPopup.bezelStyle = .texturedRounded
+                (colorPopup.cell as? NSPopUpButtonCell)?.arrowPosition = .arrowAtBottom
+                colorPopup.widthAnchor.constraint(equalToConstant: 40).isActive = true
                 colorPopup.target = self
                 colorPopup.action = #selector(colorChanged(_:))
                 colorPopup.toolTip = "设置高亮颜色；选中已有高亮时会修改它"
@@ -277,6 +379,14 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
                 item.label = "高亮颜色"
             case "display":
                 displayPopup.addItems(withTitles: ["连续滚动", "单页阅读"])
+                displayPopup.item(at: 0)?.image = ReaderStyle.symbol("rectangle.split.1x2",size: 13)
+                displayPopup.item(at: 1)?.image = ReaderStyle.symbol("rectangle",size: 13)
+                displayPopup.imagePosition = .imageOnly
+                displayPopup.bezelStyle = .texturedRounded
+                (displayPopup.cell as? NSPopUpButtonCell)?.arrowPosition = .arrowAtBottom
+                displayPopup.widthAnchor.constraint(equalToConstant: 42).isActive = true
+                displayPopup.toolTip = "连续滚动或单页阅读"
+                displayPopup.setAccessibilityLabel("阅读布局")
                 displayPopup.target = self
                 displayPopup.action = #selector(displayChanged(_:))
                 item.view = displayPopup
@@ -285,6 +395,24 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
             }
         }
         return item
+    }
+
+    @objc private func zoomChanged(_ sender: NSSegmentedControl) {
+        switch sender.selectedSegment {
+        case 0: zoomOut(nil)
+        case 1: fitPage(nil)
+        default: zoomIn(nil)
+        }
+    }
+
+    func validateToolbarItem(_ item: NSToolbarItem) -> Bool {
+        switch item.itemIdentifier.rawValue {
+        case "highlight", "comment": return readerDocument.canAnnotate && pdfView.currentSelection != nil
+        case "note", "color": return readerDocument.canAnnotate
+        case "previous": return pdfView.canGoToPreviousPage
+        case "next": return pdfView.canGoToNextPage
+        default: return true
+        }
     }
 
     @objc private func windowWillClose() {
@@ -353,24 +481,42 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
 
     private func updateStatus() {
         var parts: [String] = []
-        if pdf.isEncrypted { parts.append("加密 PDF · 只读") }
-        else if !pdf.allowsCommenting { parts.append("文档禁止批注") }
+        if pdf.isEncrypted { parts.append("已加密 · 只读") }
+        else if !pdf.allowsCommenting { parts.append("只读") }
         if pdfView.placingNote { parts.append("点击页面插入便签，Esc 取消") }
         if isSearching { parts.append("正在搜索…") }
         else if !searchField.stringValue.isEmpty {
-            parts.append("\(searchResults.count) 个匹配\(searchTruncated ? "（仅列出前 2000 个）" : "")")
+            parts.append("\(searchResults.count) 个结果\(searchTruncated ? "（前 2000 个）" : "")")
         }
         if pdfView.preservingDarkActive {
-            if pdfView.imagePreservingRenderer?.isPreparing == true { parts.append("正在准备保留图片颜色的深色页面…") }
+            if pdfView.imagePreservingRenderer?.isPreparing == true { parts.append("正在准备深色页面…") }
             else if let page = pdfView.currentPage, let reason = pdfView.imagePreservingRenderer?.reason(for: pdf.index(for: page)) {
-                parts.append("此页保持原色 · 暂不支持其复杂绘制方式")
+                parts.append("此页保持原色")
                 status.toolTip = reason
-            } else { parts.append("深色页面 · 图片保持原色 · 保存保持原色"); status.toolTip = nil }
+            } else { parts.append("深色阅读 · 图片保色"); status.toolTip = "阅读主题只影响显示，保存后的页面保持原色。" }
         } else {
-            parts.append(pdfView.basicDarkActive ? "Basic Dark · 整页反色（图片也变色） · 保存保持原色" : "Original · PDF 原始颜色")
-            status.toolTip = nil
+            parts.append(pdfView.basicDarkActive ? "整页反色 · 图片也会变色" : "原色阅读")
+            status.toolTip = "阅读主题只影响显示，保存后的页面保持原色。"
         }
         status.stringValue = parts.joined(separator: "    ·    ")
+        let current = pdfView.currentPage.map { pdf.index(for: $0) + 1 } ?? 0
+        readingInfo.stringValue = "\(current) / \(pdf.pageCount) 页    ·    \(Int((pdfView.scaleFactor * 100).rounded()))%"
+        updateSidebarSummary()
+    }
+
+    private func updateSidebarSummary() {
+        let tab = sidebarTabs.selectedSegment
+        sidebarDetail.stringValue = tab == 0 ? "共 \(pdf.pageCount) 页" : tab == 1 ? "\(notes.count) 条批注" : isSearching ? "正在搜索文档…" : "\(searchResults.count) 个搜索结果"
+        let empty = tab == 1 ? notes.isEmpty : tab == 2 && searchResults.isEmpty
+        emptyState.isHidden = !empty || tab == 0
+        listScroll.isHidden = tab == 0 || empty
+        if tab == 1 {
+            emptyState.configure(symbol: "highlighter",title: "还没有批注",detail: "选择文字添加高亮，\n或在页面上放置便签。")
+        } else {
+            let query = searchField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            emptyState.configure(symbol: "magnifyingglass",title: isSearching ? "正在查找…" : query.isEmpty ? "搜索这份文档" : "未找到匹配内容",
+                                 detail: query.isEmpty ? "输入关键词，快速定位正文。" : isSearching ? "搜索结果会显示在这里。" : "试试更短的关键词。")
+        }
     }
 
     @objc func pageChanged() {
@@ -378,9 +524,13 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
             pageField.integerValue = pdf.index(for: page) + 1
         }
         pageCount.stringValue = "/ \(pdf.pageCount)"
+        previousButton.isEnabled = pdfView.canGoToPreviousPage
+        nextButton.isEnabled = pdfView.canGoToNextPage
         thumbnails.selectCurrentPage()
+        updateStatus()
     }
     @objc private func textSelectionChanged() {
+        window?.toolbar?.validateVisibleItems()
         guard !(pdfView.currentSelection?.string ?? "").isEmpty else { return }
         // A new text selection is a new editing context. Do not recolor the
         // previously selected annotation when choosing the next highlight color.
@@ -426,6 +576,7 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
         thumbnails.isHidden = sidebarTabs.selectedSegment != 0
         listScroll.isHidden = sidebarTabs.selectedSegment == 0
         list.reloadData()
+        updateSidebarSummary()
     }
 
     func controlTextDidChange(_ obj: Notification) {
@@ -439,6 +590,7 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
         sidebar.isHidden = false
         sidebarTabs.selectedSegment = 2
         sidebarTabChanged()
+        (window?.toolbar?.items.first { $0.itemIdentifier.rawValue == "search" } as? NSSearchToolbarItem)?.beginSearchInteraction()
         window?.makeFirstResponder(searchField)
         searchField.selectText(nil)
     }
@@ -464,7 +616,7 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
         guard searchResults.count < 2000 else { searchTruncated = true; return }
         searchResults.append(selection)
         // Throttle table redraws; drawing every match makes large searches expensive.
-        if searchResults.count <= 10 || searchResults.count % 50 == 0 { list.reloadData() }
+        if searchResults.count <= 10 || searchResults.count % 50 == 0 { list.reloadData(); updateSidebarSummary() }
     }
     @objc private func searchEnded() {
         isSearching = false
@@ -664,36 +816,28 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
     }
 
     func numberOfRows(in tableView: NSTableView) -> Int { sidebarTabs.selectedSegment == 1 ? notes.count : searchResults.count }
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? { ReaderSelectionRow() }
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        let text: String
+        let cell = (tableView.makeView(withIdentifier: .init("review"),owner: self) as? ReaderReviewCell) ?? ReaderReviewCell()
+        cell.identifier = .init("review")
         if sidebarTabs.selectedSegment == 1 {
             guard row < notes.count else { return nil }
             let entry = notes[row]
             let kind = entry.annotation.reviewTitle + (entry.annotation.allowsReviewEditing ? "" : " · 已锁定")
             let key = ObjectIdentifier(entry.annotation)
-            let excerpt = excerptCache[key] ?? entry.excerpt.replacingOccurrences(of: "\n", with: " ")
+            let excerpt = excerptCache[key] ?? entry.excerpt.replacingOccurrences(of: "\n",with: " ")
             excerptCache[key] = excerpt
-            text = "第 \(entry.pageIndex + 1) 页 · \(kind)\n\(excerpt)\n\(entry.annotation.contents ?? "双击添加评论")"
+            cell.configure(caption: "第 \(entry.pageIndex + 1) 页 · \(kind)",excerpt: excerpt,
+                           comment: entry.annotation.contents?.isEmpty == false ? entry.annotation.contents! : "双击添加评论",
+                           symbol: entry.annotation.type == "Highlight" ? "highlighter" : "text.bubble",
+                           color: entry.annotation.type == "Highlight" ? .controlAccentColor : .secondaryLabelColor)
         } else {
             guard row < searchResults.count, let page = searchResults[row].pages.first else { return nil }
             let match = searchResults[row]
             let line = page.selectionForLine(at: match.bounds(for: page).origin)?.string ?? match.string ?? ""
-            text = "第 \(pdf.index(for: page) + 1) 页\n\(line.replacingOccurrences(of: "\n", with: " "))"
+            cell.configure(caption: "第 \(pdf.index(for: page) + 1) 页",excerpt: line.replacingOccurrences(of: "\n",with: " "),
+                           comment: "",symbol: "magnifyingglass",color: .secondaryLabelColor)
         }
-        let cell = NSTableCellView()
-        let label = NSTextField(wrappingLabelWithString: text)
-        label.font = .systemFont(ofSize: 12)
-        label.maximumNumberOfLines = 3
-        label.lineBreakMode = .byTruncatingTail
-        label.translatesAutoresizingMaskIntoConstraints = false
-        cell.addSubview(label)
-        cell.textField = label
-        cell.toolTip = text
-        NSLayoutConstraint.activate([
-            label.leadingAnchor.constraint(equalTo: cell.leadingAnchor, constant: 10),
-            label.trailingAnchor.constraint(equalTo: cell.trailingAnchor, constant: -10),
-            label.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
-        ])
         return cell
     }
     func tableViewSelectionDidChange(_ notification: Notification) {

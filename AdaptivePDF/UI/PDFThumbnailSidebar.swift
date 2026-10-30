@@ -21,10 +21,11 @@ final class PDFThumbnailSidebar: NSScrollView, NSTableViewDataSource, NSTableVie
         drawsBackground = false
         table.addTableColumn(NSTableColumn(identifier: .init("page")))
         table.headerView = nil
-        table.rowHeight = 202
+        table.rowHeight = 226
         table.intercellSpacing = .zero
         table.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         table.backgroundColor = .clear
+        table.focusRingType = .none
         table.dataSource = self
         table.delegate = self
         table.setAccessibilityLabel("页面缩略图")
@@ -68,10 +69,23 @@ final class PDFThumbnailSidebar: NSScrollView, NSTableViewDataSource, NSTableVie
 
     func numberOfRows(in tableView: NSTableView) -> Int { pdfView?.document?.pageCount ?? 0 }
 
+    private func previewSize(_ index: Int) -> NSSize {
+        guard let view = pdfView, let page = view.document?.page(at: index) else { return NSSize(width: 144,height: 188) }
+        let bounds = page.pageRef?.getBoxRect(view.displayBox.cgBox) ?? page.bounds(for: view.displayBox)
+        let rotated = abs(page.rotation) % 180 == 90
+        let size = rotated ? NSSize(width: bounds.height,height: bounds.width) : bounds.size
+        guard size.width > 0, size.height > 0 else { return NSSize(width: 144,height: 188) }
+        let factor = min(144 / size.width,188 / size.height)
+        return NSSize(width: size.width * factor,height: size.height * factor)
+    }
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat { previewSize(row).height + 40 }
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? { ReaderSelectionRow() }
+
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let cell = (tableView.makeView(withIdentifier: .init("thumbnail"), owner: self) as? ThumbnailCell) ?? ThumbnailCell()
         cell.identifier = .init("thumbnail")
         cell.pageLabel.stringValue = pdfView?.document?.page(at: row)?.label ?? "\(row + 1)"
+        cell.setPreviewSize(previewSize(row))
         cell.setAccessibilityLabel("第 \(row + 1) 页")
         cell.preview.image = image(forPage: row)
         return cell
@@ -93,14 +107,14 @@ final class PDFThumbnailSidebar: NSScrollView, NSTableViewDataSource, NSTableVie
         let box = view.displayBox
         let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
         queue.addOperation { [weak self] in
-            let bitmap = renderer.thumbnail(index: index, box: box, maxSize: NSSize(width: 130, height: 170), scale: scale, dark: dark)
+            let bitmap = renderer.thumbnail(index: index, box: box, maxSize: NSSize(width: 144, height: 188), scale: scale, dark: dark)
             DispatchQueue.main.async { [weak self, weak pdf] in
                 guard let self, self.generation == token, self.pdfView?.document === pdf else { return }
                 self.pending.remove(index)
                 guard let page = pdf?.page(at: index) else { return }
                 // Password-unlocked PDFKit pages cannot share their decrypted
                 // source with Core Graphics; retain their native original preview.
-                let fallback = bitmap == nil ? page.thumbnail(of: NSSize(width: 130 * scale, height: 170 * scale), for: box)
+                let fallback = bitmap == nil ? page.thumbnail(of: NSSize(width: 144 * scale, height: 188 * scale), for: box)
                     .cgImage(forProposedRect: nil, context: nil, hints: nil) : nil
                 guard let pixels = bitmap ?? fallback else { return }
                 let image = Self.addAnnotations(to: pixels, page: page, box: box, basic: basic, scale: scale, includeAnnotations: bitmap != nil)
@@ -141,23 +155,34 @@ final class PDFThumbnailSidebar: NSScrollView, NSTableViewDataSource, NSTableVie
 private final class ThumbnailCell: NSTableCellView {
     let preview = NSImageView()
     let pageLabel = NSTextField(labelWithString: "")
+    private var previewWidth: NSLayoutConstraint!
+    private var previewHeight: NSLayoutConstraint!
     override init(frame: NSRect) {
         super.init(frame: frame)
         preview.imageScaling = .scaleProportionallyDown
+        preview.wantsLayer = true
+        preview.layer?.shadowColor = NSColor.black.cgColor
+        preview.layer?.shadowOpacity = 0.16
+        preview.layer?.shadowRadius = 4
+        preview.layer?.shadowOffset = CGSize(width: 0,height: -2)
         pageLabel.alignment = .center
-        pageLabel.font = .systemFont(ofSize: 11)
+        pageLabel.font = .monospacedDigitSystemFont(ofSize: 10,weight: .medium)
         pageLabel.textColor = .secondaryLabelColor
         for view in [preview, pageLabel] { view.translatesAutoresizingMaskIntoConstraints = false; addSubview(view) }
+        previewWidth = preview.widthAnchor.constraint(equalToConstant: 144)
+        previewHeight = preview.heightAnchor.constraint(equalToConstant: 188)
         NSLayoutConstraint.activate([
             preview.centerXAnchor.constraint(equalTo: centerXAnchor),
-            preview.topAnchor.constraint(equalTo: topAnchor, constant: 8),
-            preview.widthAnchor.constraint(equalToConstant: 130),
-            preview.heightAnchor.constraint(equalToConstant: 170),
-            pageLabel.topAnchor.constraint(equalTo: preview.bottomAnchor, constant: 4),
+            preview.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            previewWidth, previewHeight,
+            pageLabel.topAnchor.constraint(equalTo: preview.bottomAnchor, constant: 7),
             pageLabel.centerXAnchor.constraint(equalTo: centerXAnchor)
         ])
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+    func setPreviewSize(_ size: NSSize) {
+        previewWidth.constant = size.width; previewHeight.constant = size.height
+    }
 }
 
 extension PDFDisplayBox {

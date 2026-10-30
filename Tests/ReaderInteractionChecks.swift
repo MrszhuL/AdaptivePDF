@@ -48,7 +48,7 @@ import PDFKit
                 let comment = "Pointer note page \(index + 1) \(mode.rawValue)"
                 editor.insertText(comment, replacementRange: NSRange(location: 0, length: (editor.string as NSString).length))
                 descendants(sheet.contentView).compactMap { $0 as? NSButton }.first { $0.title == "完成" }!.performClick(nil)
-                try await Task.sleep(nanoseconds: 100_000_000)
+                try await waitForSheetCompletion(controller) { page.annotations.contains { $0.contents == comment } }
                 guard let note = page.annotations.first(where: { $0.contents == comment }) else {
                     throw IntegrationChecks.Failure(description: "Placed note did not commit")
                 }
@@ -63,7 +63,7 @@ import PDFKit
                 try IntegrationChecks.require(reopenedEditor.string == comment,
                                               "Page \(index + 1) \(mode.rawValue): native note hit opens its saved comment")
                 descendants(reopened.contentView).compactMap { $0 as? NSButton }.first { $0.title == "取消" }!.performClick(nil)
-                try await Task.sleep(nanoseconds: 50_000_000)
+                try await waitForSheetCompletion(controller) { true }
             }
         }
         let page = document.pdf!.page(at: 0)!
@@ -90,7 +90,7 @@ import PDFKit
             let comment = "Pointer highlight \(mode.rawValue)"
             editor.insertText(comment, replacementRange: NSRange(location: 0, length: (editor.string as NSString).length))
             descendants(sheet.contentView).compactMap { $0 as? NSButton }.first { $0.title == "完成" }!.performClick(nil)
-            try await Task.sleep(nanoseconds: 100_000_000)
+            try await waitForSheetCompletion(controller) { page.annotations.contains { $0.type == "Highlight" && $0.contents == comment } }
             try IntegrationChecks.require(page.annotations.contains { $0.type == "Highlight" && $0.contents == comment },
                                           "\(mode.rawValue): native highlight hit edits the intended standard comment")
         }
@@ -100,6 +100,16 @@ import PDFKit
         try IntegrationChecks.require(APDFVerifyOriginalContent(original, saved, &error),
                                       "Pointer-created annotations retain original page contents and resources when saved")
         try IntegrationChecks.require(tryData(source) == original, "Pointer interaction and theme changes never modify the source PDF")
+    }
+
+    private static func waitForSheetCompletion(_ controller: ReaderWindowController, committed: () -> Bool) async throws {
+        // Sheet completion runs after AppKit's close animation. A fixed 100 ms
+        // delay can observe the old model even when the button worked correctly.
+        let deadline = Date().addingTimeInterval(3)
+        while controller.window?.attachedSheet != nil || !committed() {
+            guard Date() < deadline else { throw IntegrationChecks.Failure(description: "Native annotation sheet did not finish its requested action") }
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
     }
 
     private static func click(at start: NSPoint, on page: PDFPage, in view: ReaderPDFView, clickCount: Int = 1) {

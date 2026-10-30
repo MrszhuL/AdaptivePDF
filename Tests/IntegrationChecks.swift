@@ -32,6 +32,11 @@ enum IntegrationChecks {
         }
         do {
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+            if ProcessInfo.processInfo.environment["ADAPTIVEPDF_VISUAL_ONLY"] == "1" {
+                try await ReaderVisualChecks.run(root: root, output: output)
+                print("READER VISUAL CAPTURES COMPLETE")
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["ADAPTIVEPDF_THUMBNAILS_ONLY"] == "1" {
                 try await ThumbnailChecks.run(root: root, output: output)
                 print("ALL THUMBNAIL CHECKS PASSED")

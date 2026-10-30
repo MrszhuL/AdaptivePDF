@@ -63,35 +63,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             welcome.appearance = AppearancePreferences.mode.appearance
             welcome.makeKeyAndOrderFront(nil); return
         }
-        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 520, height: 340),
-                              styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+        let window = NSWindow(contentRect: NSRect(x: 0,y: 0,width: 620,height: 460),
+                              styleMask: [.titled,.closable,.miniaturizable,.fullSizeContentView],backing: .buffered,defer: false)
         window.title = "AdaptivePDF"
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
         window.appearance = AppearancePreferences.mode.appearance
         window.isRestorable = false
         window.isReleasedWhenClosed = false
-        let icon = NSImageView(image: NSImage(systemSymbolName: "doc.richtext", accessibilityDescription: "PDF 阅读器")!)
-        icon.contentTintColor = .controlAccentColor
-        icon.symbolConfiguration = .init(pointSize: 48, weight: .regular)
-        let title = NSTextField(labelWithString: "AdaptivePDF")
-        title.font = .systemFont(ofSize: 28, weight: .semibold)
-        let subtitle = NSTextField(labelWithString: "阅读论文，标记想法。外观随系统切换。")
-        subtitle.textColor = .secondaryLabelColor
-        let button = NSButton(title: "打开 PDF…", target: NSDocumentController.shared,
-                              action: #selector(NSDocumentController.openDocument(_:)))
-        button.bezelStyle = .rounded
-        button.keyEquivalent = "\r"
-        let hint = NSTextField(labelWithString: "⌘O 打开文件 · 支持多文档 · 标准 PDF 批注")
-        hint.font = .systemFont(ofSize: 11)
-        hint.textColor = .tertiaryLabelColor
-        let stack = NSStackView(views: [icon, title, subtitle, button, hint])
-        stack.orientation = .vertical
-        stack.spacing = 16
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        window.contentView?.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.centerXAnchor.constraint(equalTo: window.contentView!.centerXAnchor),
-            stack.centerYAnchor.constraint(equalTo: window.contentView!.centerYAnchor)
-        ])
+        window.contentView = WelcomeView(frame: NSRect(x: 0,y: 0,width: 620,height: 460))
         welcome = window
         window.center()
         window.makeKeyAndOrderFront(nil)

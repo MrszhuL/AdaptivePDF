@@ -122,3 +122,7 @@ scripts/                          构建、测试、工程生成脚本
 qpdf 12.4.2 的 Universal 动态库、73 个原版公开头文件和许可证随源码提供，普通 Xcode 构建完全离线。`python3 scripts/verify_vendor.py` 验证上游 Git blob、锁定库哈希和架构；可用 `scripts/restore_qpdf.py` 从固定的官方发行包恢复头文件/二进制。菜单「第三方许可」可查看完整说明。
 
 引入该依赖是为了解决实际观察到的字体映射破坏，不自行实现 PDF 解析器。依据：[qpdf 对象保留接口](https://qpdf.readthedocs.io/en/stable/library.html)。This software is based in part on the work of the Independent JPEG Group.
+
+## 界面组件
+
+`ReaderStyle.swift` 集中管理随窗口主题变化的表面配色、选中行、空状态和批注卡片。阅读窗口使用原生 `NSToolbar` / `NSSearchToolbarItem`，在窄窗口中自动把次要标注操作移入溢出菜单，并保留核心入口。缩略图按页的旋转和裁切比例安排高度。`WelcomeView.swift` 支持原生打开面板及 PDF 文件拖入，文件仍通过 NSDocumentController 打开。

@@ -34,6 +34,7 @@ final class ReaderPDFView: PDFView {
         displayMode = .singlePageContinuous
         displayDirection = .vertical
         displaysPageBreaks = true
+        pageBreakMargins = NSEdgeInsets(top: 20,left: 24,bottom: 20,right: 24)
         minScaleFactor = 0.10
         maxScaleFactor = 8
         registerForDraggedTypes([.fileURL])
@@ -56,7 +57,7 @@ final class ReaderPDFView: PDFView {
         // selections / hit targets, and needs no full-page bitmap cache.
         layer?.filters = active ? AppearancePreferences.basicDarkFilter().map { [$0] } : nil
         // The outside canvas is transformed too, so choose its preimage.
-        backgroundColor = active ? NSColor(white: 0.99, alpha: 1) : preserving ? NSColor(white: 0.12, alpha: 1) : .windowBackgroundColor
+        backgroundColor = active ? NSColor(white: 0.99, alpha: 1) : ReaderStyle.canvas
         if preserving {
             imagePreservingRenderer?.prepare { [weak self] in
                 self?.invalidatePageDrawing()

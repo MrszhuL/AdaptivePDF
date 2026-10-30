@@ -4,13 +4,13 @@
 
 使用 Swift、AppKit、PDFKit、Core Graphics 与 qpdf 构建，文件在本机处理，无需注册账号。
 
-**当前版本：1.0.0 预览版（build 9）。** 安装包采用本地 ad-hoc 签名，尚未完成 Developer ID 签名和 Apple 公证。
+**当前版本：1.0.0 预览版（build 10）。** 安装包采用本地 ad-hoc 签名，尚未完成 Developer ID 签名和 Apple 公证。
 
 ## 下载
 
-- [下载 macOS 安装包（DMG）](https://github.com/MrszhuL/AdaptivePDF/releases/download/v1.0.0-build9/AdaptivePDF.dmg)
-- [下载应用压缩包（ZIP）](https://github.com/MrszhuL/AdaptivePDF/releases/download/v1.0.0-build9/AdaptivePDF-macOS.zip)
-- [版本说明、源码与 SHA256 校验文件](https://github.com/MrszhuL/AdaptivePDF/releases/tag/v1.0.0-build9)
+- [下载 macOS 安装包（DMG）](https://github.com/MrszhuL/AdaptivePDF/releases/download/v1.0.0-build10/AdaptivePDF.dmg)
+- [下载应用压缩包（ZIP）](https://github.com/MrszhuL/AdaptivePDF/releases/download/v1.0.0-build10/AdaptivePDF-macOS.zip)
+- [版本说明、源码与 SHA256 校验文件](https://github.com/MrszhuL/AdaptivePDF/releases/tag/v1.0.0-build10)
 
 两个安装包包含相同的 Universal 应用。普通使用者下载 DMG 即可，无需安装 Xcode、Python 或 qpdf。
 
@@ -25,6 +25,7 @@
 
 ## 主要功能
 
+- **原生界面**：分组工具栏、主题一致的侧栏、清晰的缩略图选中状态、批注卡片与搜索空状态，窄窗口下保留翻页、主题和搜索入口。
 - **原生阅读**：本地 PDF、多窗口、连续滚动或单页、缩放、适合页面/宽度、页码跳转、文字选择与复制。
 - **图片保色深色阅读**：跟随系统、浅色和深色三种主题；默认深色模式调整背景与中性色绘制，保留嵌入图片的颜色。
 - **主题同步缩略图**：侧栏页面预览跟随正文变暗，图片继续保色；支持点击跳页、当前页同步及批注刷新。
@@ -32,6 +33,14 @@
 - **标准 PDF 批注**：四种颜色高亮、文字评论、页面便签、批注列表、编辑与删除、撤销与重做。
 - **保存与重开**：批注写入标准 PDF 对象；保存时校验原页面内容、字体和图片资源，主题设置不写入 PDF 原文。
 - **本地使用**：没有账号系统、遥测或云同步服务；加密 PDF 解锁后仍以只读方式阅读。
+
+## 界面预览
+
+以下为应用实际窗口截图，打开的是仓库内生成的测试 PDF。
+
+![AdaptivePDF 深色阅读界面](docs/images/reader-dark.png)
+
+另见 [浅色界面](docs/images/reader-light.png) 与 [欢迎页](docs/images/welcome-dark.png)。
 
 ## 深色阅读效果
 
