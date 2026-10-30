@@ -1,0 +1,115 @@
+AdaptivePDF verification - 2026-10-30 Asia/Shanghai
+macOS 15.8 / Intel x86_64 / Xcode 16.2 / SDK 15.2 / Deployment 15.0
+
+Debug build: succeeded
+Release build: BUILD SUCCEEDED
+Release binary: Universal (x86_64 + arm64); runtime tested on Intel only
+
+DEBUG INTEGRATION
+PASS: Intel macOS 15 document and native window load
+PASS: Opening a PDF does not mark it modified
+PASS: Responder chain forwards reader menu actions
+PASS: Fit width produces a valid zoom
+PASS: Next-page navigation
+PASS: Asynchronous full-text search finds all three pages
+PASS: Search result locates native PDFSelection
+PASS: Cross-line highlight uses multiple standard QuadPoints
+PASS: Annotation changes mark the NSDocument modified
+PASS: Cross-page selection creates one standard highlight per page
+PASS: Rotated, cropped page retains page-space highlight geometry
+PASS: Annotation deletion
+PASS: Undo restores deleted annotation
+PASS: Redo removes annotation again
+PASS: Follow System responds live to inherited dark appearance
+PASS: Follow System returns live to light appearance
+PASS: Explicit Dark overrides light system appearance
+PASS: Original strategy preserves displayed PDF colors
+PASS: Theme changes retain page and zoom
+PASS: Theme changes retain annotations
+PASS: Viewing and theme changes never write the source file
+PASS: Safe save completion returns within 15 seconds
+PASS: Successful NSDocument safe save clears modified state
+PASS: All standard annotations survive saving and reopening
+PASS: Highlight comment persists
+PASS: Text note persists
+PASS: Original text survives annotation-only save
+PASS: Page 1 base content renders unchanged (mean channel difference < 0.1/255)
+PASS: Page 2 base content renders unchanged (mean channel difference < 0.1/255)
+PASS: Page 3 base content renders unchanged (mean channel difference < 0.1/255)
+PASS: Save current PDF safely replaces an existing file and clears modified state
+PASS: Replacement save retains the updated standard text note
+PASS: Failed save completion returns within 15 seconds
+PASS: Failed safe save returns an error and retains unsaved edits
+PASS: Failed save leaves previous saved PDF readable
+PASS: Unwritable destination reports permission failure and retains edits
+PASS: Closing a modified document presents the native save/discard/cancel sheet
+PASS: Canceling close retains window and unsaved annotations
+PASS: Registered PDF document type opens a second independent native document
+PASS: Theme preference updates all open PDF windows
+PASS: Encrypted PDF opens locked
+PASS: Incorrect PDF password rejected
+PASS: Unlocked encrypted PDF stays read-only
+CoreGraphics PDF has logged an error. Set environment variable "CG_PDF_VERBOSE" to learn more.
+PASS: Encrypted PDF cannot accidentally be saved without protection
+PASS: Invalid PDF is rejected
+WINDOW_ID: 43116
+ALL INTEGRATION CHECKS PASSED
+
+RELEASE INTEGRATION
+PASS: Intel macOS 15 document and native window load
+PASS: Opening a PDF does not mark it modified
+PASS: Responder chain forwards reader menu actions
+PASS: Fit width produces a valid zoom
+PASS: Next-page navigation
+PASS: Asynchronous full-text search finds all three pages
+PASS: Search result locates native PDFSelection
+PASS: Cross-line highlight uses multiple standard QuadPoints
+PASS: Annotation changes mark the NSDocument modified
+PASS: Cross-page selection creates one standard highlight per page
+PASS: Rotated, cropped page retains page-space highlight geometry
+PASS: Annotation deletion
+PASS: Undo restores deleted annotation
+PASS: Redo removes annotation again
+PASS: Follow System responds live to inherited dark appearance
+PASS: Follow System returns live to light appearance
+PASS: Explicit Dark overrides light system appearance
+PASS: Original strategy preserves displayed PDF colors
+PASS: Theme changes retain page and zoom
+PASS: Theme changes retain annotations
+PASS: Viewing and theme changes never write the source file
+PASS: Safe save completion returns within 15 seconds
+PASS: Successful NSDocument safe save clears modified state
+PASS: All standard annotations survive saving and reopening
+PASS: Highlight comment persists
+PASS: Text note persists
+PASS: Original text survives annotation-only save
+PASS: Page 1 base content renders unchanged (mean channel difference < 0.1/255)
+PASS: Page 2 base content renders unchanged (mean channel difference < 0.1/255)
+PASS: Page 3 base content renders unchanged (mean channel difference < 0.1/255)
+PASS: Save current PDF safely replaces an existing file and clears modified state
+PASS: Replacement save retains the updated standard text note
+PASS: Failed save completion returns within 15 seconds
+PASS: Failed safe save returns an error and retains unsaved edits
+PASS: Failed save leaves previous saved PDF readable
+PASS: Unwritable destination reports permission failure and retains edits
+PASS: Closing a modified document presents the native save/discard/cancel sheet
+PASS: Canceling close retains window and unsaved annotations
+PASS: Registered PDF document type opens a second independent native document
+PASS: Theme preference updates all open PDF windows
+PASS: Encrypted PDF opens locked
+PASS: Incorrect PDF password rejected
+PASS: Unlocked encrypted PDF stays read-only
+CoreGraphics PDF has logged an error. Set environment variable "CG_PDF_VERBOSE" to learn more.
+PASS: Encrypted PDF cannot accidentally be saved without protection
+PASS: Invalid PDF is rejected
+WINDOW_ID: 43121
+ALL INTEGRATION CHECKS PASSED
+
+INDEPENDENT PDF CHECKS
+PASS: Annotated.pdf: theme leaves page content streams unchanged; original RGB image bytes, rotations and boxes retained
+PASS: before-theme.pdf: theme leaves page content streams unchanged; original RGB image bytes, rotations and boxes retained
+PASS: after-theme.pdf: theme leaves page content streams unchanged; original RGB image bytes, rotations and boxes retained
+PASS: independent parser recognizes four /Highlight annotations with /QuadPoints and one /Text note
+PASS: comments survive in standard /Contents fields
+
+Manual and unverified checks: see TESTING.md

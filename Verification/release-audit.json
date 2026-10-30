@@ -1,0 +1,365 @@
+{
+  "schema_version": 1,
+  "audited_at": "2026-10-30T04:21:05.780213+00:00",
+  "app_version": "1.0.0",
+  "app_build": "8",
+  "overall_goal_achieved": false,
+  "ready_for_public_distribution": false,
+  "original_scope_preserved": true,
+  "original_brief_sha256": "b3184084af1836a5d441a58183de269e260b5dd356791d8ecc9182f25187a8e9",
+  "production_binary_sha256": "a92b534f14bee83ab54835c7d2f793a2acfcedddc382cc365f9c2e42bb3c7119",
+  "acceptance": [
+    {
+      "id": 1,
+      "requirement": "macOS 15 Intel 启动",
+      "status": "verified",
+      "evidence_scope": "未插桩生产包从只读 DMG 启动；完整尺寸、完全可见且稳定的文档窗口出现，随后正常退出。",
+      "reports": [
+        "production.json",
+        "launch.json"
+      ]
+    },
+    {
+      "id": 2,
+      "requirement": "打开普通文本 PDF",
+      "status": "verified",
+      "evidence_scope": "原生文档加载、页数、文字提取与后台读取均有运行证据。",
+      "reports": [
+        "debug.json",
+        "optimized.json",
+        "corpus.json"
+      ]
+    },
+    {
+      "id": 3,
+      "requirement": "滚动、缩放、搜索、选择文字",
+      "status": "partial",
+      "evidence_scope": "缩放、导航、异步搜索与定位已验证；实际滚轮及鼠标拖选未验证。",
+      "reports": [
+        "debug.json",
+        "optimized.json",
+        "historical-build6-active-input-probe.json"
+      ]
+    },
+    {
+      "id": 4,
+      "requirement": "系统 Light 切到 Dark",
+      "status": "partial",
+      "evidence_scope": "应用级 NSApp.appearance 注入及 Follow System 回调已验证；全局系统设置切换未执行。",
+      "reports": [
+        "debug.json",
+        "debug-appearance.json",
+        "optimized-appearance.json"
+      ]
+    },
+    {
+      "id": 5,
+      "requirement": "系统 Dark 切回 Light",
+      "status": "partial",
+      "evidence_scope": "应用内双向外观继承已验证；全局系统设置切换未执行。",
+      "reports": [
+        "debug.json",
+        "optimized.json"
+      ]
+    },
+    {
+      "id": 6,
+      "requirement": "鼠标跨行选择并加黄色高亮",
+      "status": "partial",
+      "evidence_scope": "真实 PDFSelection、黄色标准高亮与 QuadPoints 已验证；选区由代码建立，未记为鼠标拖选通过。",
+      "reports": [
+        "debug.json",
+        "optimized.json",
+        "debug-pointer.log",
+        "optimized-pointer.log"
+      ]
+    },
+    {
+      "id": 7,
+      "requirement": "高亮添加评论",
+      "status": "verified",
+      "evidence_scope": "标准评论经原生编辑器提交并保存重读；命中检查覆盖浅色和深色。证据范围为当前进程内原生控件。",
+      "reports": [
+        "debug.json",
+        "optimized.json",
+        "debug-pointer.log"
+      ]
+    },
+    {
+      "id": 8,
+      "requirement": "页面位置插入便签",
+      "status": "verified",
+      "evidence_scope": "普通页及旋转/裁切页上的浅/深色命中、位置、重开评论与标准格式均验证；不是跨进程硬件输入验收。",
+      "reports": [
+        "debug.json",
+        "optimized.json",
+        "debug-pointer.log",
+        "optimized-pointer.log"
+      ]
+    },
+    {
+      "id": 9,
+      "requirement": "编辑、删除已有批注",
+      "status": "verified",
+      "evidence_scope": "评论、颜色、删除、撤销/重做、导入审阅类型与锁定保护通过原生功能检查。",
+      "reports": [
+        "debug.json",
+        "optimized.json"
+      ]
+    },
+    {
+      "id": 10,
+      "requirement": "保存、关闭、重开保留批注",
+      "status": "verified",
+      "evidence_scope": "安全另存为后端、覆盖保存、标准批注重读、原生关闭和多文档退出分支已验证。远程文件面板确认另列为 UI 缺项。",
+      "reports": [
+        "debug.json",
+        "optimized.json",
+        "debug-close.json",
+        "optimized-close.json"
+      ]
+    },
+    {
+      "id": 11,
+      "requirement": "Preview 或其他阅读器识别批注",
+      "status": "unverified",
+      "evidence_scope": "独立解析器识别标准批注已通过；目标阅读器的可视显示和编辑未执行，不能由解析结果替代。",
+      "reports": [
+        "debug-pdf.log",
+        "optimized-pdf.log",
+        "ui-status.json"
+      ]
+    },
+    {
+      "id": 12,
+      "requirement": "主题不改图片原始数据",
+      "status": "verified",
+      "evidence_scope": "保存保留原始内容及图片资源；新增保色显示模式的原生渲染与独立解析覆盖 RGB/gray/CMYK/ICC/alpha、内联图片、嵌套 Form、裁切和旋转；九个图片区域像素差均为 0。真实窗口截图未稳定通过。",
+      "reports": [
+        "debug.json",
+        "optimized.json",
+        "corpus-independent.json",
+        "debug-image-preservation.json",
+        "optimized-image-preservation.json",
+        "window-capture-status.json"
+      ]
+    },
+    {
+      "id": 13,
+      "requirement": "彩色图像、公式、矢量与多页 PDF",
+      "status": "verified",
+      "evidence_scope": "合成样本、三篇真实论文、400 页文本及约 49 MB 扫描件共 490 页；结构/文本/资源检查通过，真实论文全部 66 页基础渲染比对通过。",
+      "reports": [
+        "corpus.json",
+        "corpus-independent.json"
+      ]
+    },
+    {
+      "id": 14,
+      "requirement": "深色下选区、高亮与鼠标点击准确",
+      "status": "partial",
+      "evidence_scope": "显示层不改坐标；浅/深色命中、旋转/裁切坐标、高亮标准几何和复制后端通过；实际硬件拖选及视觉可读性完整验收未通过。",
+      "reports": [
+        "debug.json",
+        "optimized.json",
+        "historical-build6-active-input-probe.json"
+      ]
+    },
+    {
+      "id": 15,
+      "requirement": "保存失败与未保存退出",
+      "status": "verified",
+      "evidence_scope": "两种配置各 10 个隔离进程场景、60 项断言；实际终止、取消、放弃、保存失败和原文件不变均有证据。",
+      "reports": [
+        "debug-close.json",
+        "optimized-close.json"
+      ]
+    }
+  ],
+  "functional_requirements": [
+    {
+      "group": "PDF 阅读",
+      "implemented": [
+        "本地文件打开",
+        "连续和单页布局",
+        "缩放/适合页面/宽度",
+        "页码导航",
+        "原生文字选择及复制",
+        "异步搜索及结果定位",
+        "快捷键和基础键盘操作",
+        "文件拖拽",
+        "多文档"
+      ],
+      "verification_limit": "真实滚动、鼠标拖选、文件拖拽和全部键位仍待完整 UI 验收。",
+      "source": [
+        "AdaptivePDF/Reader/ReaderPDFView.swift",
+        "AdaptivePDF/UI/ReaderWindowController.swift",
+        "AdaptivePDF/Application/MenuBuilder.swift"
+      ]
+    },
+    {
+      "group": "外观",
+      "implemented": [
+        "Follow System/Light/Dark",
+        "跨窗口实时更新",
+        "重启偏好恢复",
+        "Original/Basic Dark",
+        "显示不写 PDF",
+        "欢迎窗口遵循同一偏好",
+        "默认嵌入图片保色深色",
+        "后台矢量显示副本",
+        "复杂绘制页原色回退"
+      ],
+      "verification_limit": "保色测试九个区域原生渲染像素差为 0，编码图片、遮罩与颜色配置一致。扫描图片本身保持原色；复杂混合、特殊纸张及任意 PDF 的语义插图保色不做完整承诺。实际窗口像素与系统级外观切换仍待 UI 验收。",
+      "source": [
+        "AdaptivePDF/Appearance/AppearancePreferences.swift",
+        "AdaptivePDF/Reader/ReaderPDFView.swift",
+        "AdaptivePDF/Application/AppDelegate.swift",
+        "AdaptivePDF/Appearance/ImagePreservingRenderer.swift",
+        "AdaptivePDF/Appearance/ImagePreservingPDFDocument.swift",
+        "AdaptivePDF/Native/ImagePreservingDark.mm"
+      ]
+    },
+    {
+      "group": "高亮/评论/便签",
+      "implemented": [
+        "四种高亮颜色",
+        "跨行及逐页跨页高亮",
+        "已有颜色修改",
+        "标准评论和便签",
+        "编辑和删除",
+        "未保存标记及撤销/重做",
+        "原生草稿取消/提交",
+        "旋转和裁切坐标"
+      ],
+      "verification_limit": "原生控件及进程内命中有证据，完整硬件输入仍待验收；特殊文字方向及复杂双栏选择未全面验证。",
+      "source": [
+        "AdaptivePDF/Annotation/AnnotationStore.swift",
+        "AdaptivePDF/UI/ReaderWindowController.swift",
+        "AdaptivePDF/UI/AnnotationDraftTextView.swift"
+      ]
+    },
+    {
+      "group": "保存和权限",
+      "implemented": [
+        "保存",
+        "另存为后端",
+        "安全替换及错误保留修改",
+        "关闭保存/放弃/取消",
+        "保持页面内容及完整资源图",
+        "加密只读及密码错误处理",
+        "只读/锁定批注保护",
+        "基础表单值保存",
+        "重新载入绑定同步"
+      ],
+      "verification_limit": "远程另存为面板的确认待 XCUI；签名 PDF、PDF/A、特殊私有数据与复杂联动表单未全面验证。",
+      "source": [
+        "AdaptivePDF/Document/PDFReaderDocument.swift",
+        "AdaptivePDF/Document/PreservingPDFWriter.swift",
+        "AdaptivePDF/Document/FormValueTracker.swift",
+        "AdaptivePDF/Native/QPDFBridge.mm"
+      ]
+    },
+    {
+      "group": "侧栏和原生 UI",
+      "implemented": [
+        "缩略图",
+        "按页排序审阅列表",
+        "可用文字摘录与评论",
+        "点击定位",
+        "编辑/删除",
+        "搜索结果栏",
+        "原生工具栏与菜单"
+      ],
+      "verification_limit": "已实现并有功能级证据，完整键鼠流程和辅助功能仍待 UI 验收。",
+      "source": [
+        "AdaptivePDF/UI/ReaderWindowController.swift",
+        "AdaptivePDF/Application/MenuBuilder.swift"
+      ]
+    }
+  ],
+  "technical_constraints": {
+    "platform": "macOS 15.0 deployment; built with macOS 15.2 SDK on Intel macOS 15.8",
+    "native_stack": [
+      "Swift",
+      "AppKit",
+      "PDFKit",
+      "CoreGraphics",
+      "CoreImage"
+    ],
+    "dependency_justification": "Bundled qpdf preserves content/font/image object graphs after actual PDFKit full-save corruption was found; offline provenance and complete notices checked.",
+    "public_api_review": "Production links only public Apple frameworks, Swift/system libraries and bundled qpdf; dynamic selectors found are public undo:/redo: and Core Image matrix keys.",
+    "security_changes": "No SIP, authentication, Gatekeeper or developer-tool security settings changed.",
+    "performance": "Warm-cache open/search/save and run-loop/RSS metrics recorded for the corpus; no claim of measured hardware scroll FPS or pure-reader peak RSS.",
+    "excluded_scope": [
+      "cloud sync",
+      "accounts",
+      "AI reading",
+      "OCR",
+      "page content editing",
+      "merge/split",
+      "complex handwriting"
+    ],
+    "allowed_staged_fallback": "Original and clearly labelled Basic Dark; reliable image-preserving Smart Dark remains deferred, not represented as implemented."
+  },
+  "deliverables": {
+    "xcode_project": "AdaptivePDF.xcodeproj",
+    "source_zip": "AdaptivePDF-source.zip",
+    "application_zip": "AdaptivePDF-macOS.zip",
+    "disk_image": "AdaptivePDF.dmg",
+    "module_build_run_and_feature_docs": "README.md",
+    "verification_and_reproduction": "TESTING.md",
+    "release_signing_and_remaining_work": "RELEASE.md",
+    "resources": "AdaptivePDF/Info.plist and AdaptivePDF/Resources",
+    "actual_build_commands": [
+      "scripts/build.sh Release",
+      "scripts/release.sh --candidate",
+      "xcodebuild -scheme AdaptivePDFUITests build-for-testing"
+    ],
+    "actual_results": "Debug/optimized main checks 119 each; close/quit 10 cases/60 assertions each; appearance restart 9 combinations/105 assertions each; 9 independent image pixel comparisons exact in both configurations; 490-page corpus; stable read-only DMG production launch. Current build native UI execution and window pixel gate remain unverified."
+  },
+  "external_requirements": [
+    {
+      "id": "ui_authorization",
+      "state": "blocked",
+      "observed": "Developer mode is currently disabled; earlier XCUI initialization rejected authentication. A fresh unique-bundle LaunchServices instance also remained inactive without a key window.",
+      "required_action": "The machine owner completes Xcode developer-tool authorization and enables a usable graphical test session, or performs the listed manual acceptance checks."
+    },
+    {
+      "id": "target_reader_qa",
+      "state": "unverified",
+      "observed": "Preview interaction has not been performed. No enabled native computer-control surface; browser local-file navigation was rejected by policy.",
+      "required_action": "Verify standard highlights/notes display and editing in Preview or another compatible reader."
+    },
+    {
+      "id": "publisher_information",
+      "state": "awaiting_user",
+      "observed": "Bundle identifier is temporary; publisher name, final identifier, support contact and distribution license have not been supplied.",
+      "required_action": "Publisher provides these four choices."
+    },
+    {
+      "id": "developer_id_and_notarization",
+      "state": "blocked",
+      "observed": "security find-identity reports 0 valid code-signing identities; production is ad-hoc signed; notarization has not run.",
+      "required_action": "Publisher provisions a Developer ID Application identity and an authorized notarytool profile locally; do not send private keys or account passwords through chat."
+    }
+  ],
+  "evidence_report_sha256": {
+    "debug.json": "55d29161b17e37303b303a7c47925f662db390b5281c0ce7e997cc9f95320631",
+    "optimized.json": "221c3407463d0238f9e7fbb6bc40186cb5bf464b315cf182e2625e2c6570e34e",
+    "debug-close.json": "573274f743ce0e7d3e3e8df889446df2f401c5c7e3baa5edb64195ca111e8909",
+    "optimized-close.json": "88253438aae01bbf1a0cd098046b8cc86e8acc0500f6924afedc5382068378f3",
+    "debug-appearance.json": "c896a2dcc2e6de848be7bff1ab43fb3adf41ec5453a7e382df42962201bd920d",
+    "optimized-appearance.json": "1290a145698c9176ebc6cb94a2b2bb4da8b9d7349331e02ccdc659abc063fdc7",
+    "debug-image-preservation.json": "01f59561bd9efc87ae97d5258d01c7fa39c5a31a10ed5237d14a95ba800e65bc",
+    "optimized-image-preservation.json": "01f59561bd9efc87ae97d5258d01c7fa39c5a31a10ed5237d14a95ba800e65bc",
+    "corpus.json": "42d6e810720a4bceb70a529f4a57cdfef2da06b45e5817480435941106fca82d",
+    "corpus-independent.json": "c84d36c3830ccf45cd9a236d77bb73c45eeec65178412d68c204fde43d6c2e16",
+    "production.json": "8e3bf8de08f73ba716b3ebe8b246274332824374d5cb4fa341f6887954e2d84e",
+    "launch.json": "48a66cd05c6d39bf1fddfe96bdaf06931d608502072b477b42da9ba3351091e0",
+    "ui-status.json": "ee21334ad30df3b35125ce26c0f4160bc3c385641cf0e4290cb9ec0a6bed0578",
+    "historical-build6-active-input-probe.json": "5ffca35307d58e57bf8625f12b07702102f311456cd06465e1476b580d7296a1",
+    "window-capture-status.json": "3654732e008eeaadea40ca9372e3b3ba99cf055c1dfd4dd8694a1de6f08679c8"
+  },
+  "next_action": "Resolve the external prerequisites, then run the existing UI workflow, Preview checks and notarization; do not promote the current candidate as a completed public release."
+}

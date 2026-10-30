@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "cases": [
+    {
+      "id": "attention",
+      "file": "attention.pdf",
+      "sha256": "bdfaa68d8984f0dc02beaca527b76f207d99b666d31d1da728ee0728182df697",
+      "kind": "paper",
+      "pages": 15,
+      "source": "https://arxiv.org/pdf/1706.03762v7"
+    },
+    {
+      "id": "resnet",
+      "file": "resnet.pdf",
+      "sha256": "1e0651b6810ecba34a3dbc5b5b0209226f889004607c1f203540a48d64e5a93a",
+      "kind": "paper",
+      "pages": 12,
+      "source": "https://arxiv.org/pdf/1512.03385v1"
+    },
+    {
+      "id": "efficient-transformers",
+      "file": "efficient-transformers.pdf",
+      "sha256": "d4f2425d4487fa3097d1c0f274df161901748a40f10877cdc5447d711ea2ef35",
+      "kind": "paper",
+      "pages": 39,
+      "source": "https://arxiv.org/pdf/2009.06732v3"
+    }
+  ]
+}

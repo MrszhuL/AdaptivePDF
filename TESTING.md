@@ -1,0 +1,171 @@
+# 构建与测试记录
+
+## build 8 增补
+
+默认深色阅读改为“保留图片颜色”，显式整页反色仍标为 Basic Dark。新检查覆盖 RGB、灰度、CMYK、ICC、透明遮罩、嵌套/重复 Form、内联图片、剪裁与旋转页。独立 pypdf 核对原始编码图片、遮罩、颜色配置和内联图片数据；逐区域比较原色与深色渲染，复杂透明页核对整页原色回退。
+
+实际窗口像素检查同时要求 PDF 页边距由白色变为 #242424，图片区域逐通道平均差不超过 1。主集成包括保色显示副本、原始文本和页面几何检查；原生命中、评论与复制检查改为使用新的保色深色模式。重启测试增加 preserveImages，覆盖三种主题 × 三种策略。它们仍不代表跨进程硬件拖选已验收。
+
+本次独立原生渲染的九个图片区域逐通道平均像素差均为 0，原始编码图片、遮罩及配置一致。窗口截图探针目前无法稳定获取窗口：部分运行返回 `could not create image from window`；已有捕获还出现原生瓦片接缝，未达到图片区域平均差不超过 1 的要求，因此不能把窗口像素检查记为通过。最终候选运行完整模型与独立渲染检查，窗口截图仍是待验收项。
+
+## build 7 增补
+
+修复“选择深色后 PDF 页面仍保持白底”的主题控制歧义。新增三项原生控制检查：Original 后通过工具栏重新选 Dark、通过菜单重新选 Dark、在系统深色下重新选 Follow System，均须恢复页面深色；原有 Original 偏好仍可独立选择并重启恢复。主集成共 105 项断言。
+
+设置 `ADAPTIVEPDF_CAPTURE=1` 运行集成检查后，`Tests/verify_dark_screenshots.py --output <测试输出目录>` 检查实际 AppKit 窗口截图中 PDF 页面的空白边距像素（浅色接近 255，深色接近 36，逐通道容差 12）。采样矩形由 PDF 页坐标转换到窗口坐标，包含实际合成滤镜效果，不能用原色 PDF 缩略图替代。截图通过工具栏动作切换主题，先设置 Original 以复现问题；截图不代表跨进程真实鼠标拖选已经验证。
+
+## build 6 增补
+
+发布审计见 `Verification/release-audit.json`：逐条对应原始 15 项验收、P0 功能组、技术约束和交付物，并记录证据范围及未完成的外部条件。
+
+原生主集成检查增加到 **102 项**。新增普通页与旋转/裁切页上的便签放置坐标、评论命中，以及浅色/深色下高亮双击编辑和 PDFView 原生复制后端。事件通过当前测试进程内公开的 AppKit 命中测试派发，不依赖私有 PDFKit 类或跨进程输入。复制检查短暂把生成样本文字写入系统剪贴板，在没有外部更改时恢复原内容；原内容只在内存保存，不写日志或文件。
+
+**实际鼠标拖选仍未验证。** 实测 shell 启动的测试进程没有获得活动应用/键窗口状态，投递到应用队列的拖拽没有产生选区。没有将手工创建的 PDFSelection 记作鼠标拖选成功；复制后端与高亮命中检查使用已构造的标准 PDFSelection，完整硬件输入流程仍须由 XCUI/人工验收。
+
+审计又以唯一测试 bundle identifier 和正常 LaunchServices 激活请求启动独立实例，仍未获得活动/键窗口状态；该实例没有执行拖拽，已正常结束，临时探针源码已撤销。结果保存为候选包 `verification/active-input-probe.json`，不能据此宣称鼠标操作通过。
+
+新增六种主题/策略组合的跨进程重启检查，每种组合分别由独立进程写入偏好、正常退出、重新启动并读取、最后清理。使用唯一的测试 UserDefaults 域，业务读取与写入代码保持一致，不修改用户的普通偏好域，也不调用 synchronize() 强制刷写。每种构建配置共 64 项断言，核对欢迎窗口、阅读窗口、主题控件、Original/Basic Dark 状态和 PDF 原始字节。系统外观仅在当前应用注入，不修改全局系统设置。
+
+该检查修复了欢迎窗口没有应用持久化强制主题的问题；既有欢迎窗口现也随主题偏好更新。报告为 `verification/debug-appearance.json` 与 `optimized-appearance.json`。`verify_pointer_pdf.py` 用独立 pypdf 核对四个便签位置、两个跨行高亮及评论，并确认页面内容、文字、旋转和裁切范围保持。
+
+## build 5 增补
+
+增加 **10 个隔离进程中的原生关闭/退出场景**，共 60 项断言：窗口关闭时保存、放弃、取消及保存失败；单文档退出时保存、放弃、取消；两个未保存文档退出时复查逐份保存、全部放弃、取消。退出场景实际调用 NSApplication.terminate，成功退出必须收到 applicationWillTerminate；取消必须保留窗口、文档和未保存内容。不会给用户正在运行的其他实例发送任何关闭请求。
+
+驱动通过当前进程内公开 AppKit 控件响应真实的 NSDocument 对话框，并在 modalPanel/eventTracking 模式下运行。保存失败用测试目录权限触发，恢复权限后核对窗口与内存批注；保存成功用保真资源校验器与独立 pypdf 检查，放弃/取消则核对原文件字节完全不变。发布脚本在 Debug 和优化配置下各运行一次，报告为 `verification/debug-close.json` 与 `optimized-close.json`。单独复现：
+
+```sh
+ADAPTIVEPDF_PYTHON=/path/to/python3 ./scripts/close-test.sh
+```
+
+另存为后端已由原有安全保存检查验证；远程文件面板的实际确认操作仍需 XCUI。实测 macOS 15 的 NSSavePanel 直接调用公开 ok: 会抛出 not implemented，未采用私有接口或伪造面板返回值。新增 XCUI 另存为场景检查新文件、原文件不变及窗口名称，当前仍受开发工具认证阻止，不能声称已执行通过。
+
+本地构建脚本现在检查目标应用是否仍有进程使用，采用独立输出路径保留旧实例，避免覆盖正在运行的应用。实际构建输出路径见 `build/latest-app-path.txt`。
+
+## build 4 增补
+
+build 4 的快速原生集成检查为 **84 项**，另有每种构建配置 5 项独立批注/页面检查和 2 项独立表单检查。
+
+原生集成增加重新载入成功/失败、旧草稿取消、阅读位置及搜索重绑、恢复后的批注保存，以及基础 AcroForm 回归。表单用公开 AppKit 事件与 NSTextView 输入驱动真实 PDFKit 控件，覆盖输入即修改、原生文本撤销/重做、焦点离开后的撤销、复选框逐次撤销、只读字段和加密字段保护。事件之间异步返回实际 NSApplication 循环，避免用嵌套 run loop 假装完成输入事件。
+
+`verify_forms.py` 使用独立 pypdf 解析器验证文本、选项、开关/关闭复选框、清空值、只读标记、默认值、继承字段的 /Kids-/Parent 引用和外观字典。结果随候选包保存在 `verification/debug-forms.log` 和 `optimized-forms.log`。复杂联动表单、XFA、JavaScript、表单辅助功能和完整键盘交互仍未验证。
+
+可聚焦运行文档生命周期检查（Debug 或 INTEGRATION_TESTS 构建）：
+
+```sh
+ADAPTIVEPDF_TEST_ROOT="$PWD" ADAPTIVEPDF_LIFECYCLE_ONLY=1 \
+  build/DerivedData/Build/Products/Debug/AdaptivePDF.app/Contents/MacOS/AdaptivePDF --self-test
+```
+
+## build 3 增补
+
+build 3 的快速原生集成检查为 **61 项**，包括保真写入的负面校验、完整页面资源保留验证，以及旋转/裁切页面上的中文、公式 Unicode 与 emoji 评论保存重读。原有 45/58 项记录属于先前阶段。
+
+新增长文档与真实论文回归：Attention Is All You Need（15 页）、Deep Residual Learning for Image Recognition（12 页）、Efficient Transformers: A Survey（39 页）、400 页生成文档，以及 24 页约 49 MB 的扫描件，共 **5 个案例、490 页**。所有来源版本和 SHA256 固定，原论文位于忽略的 tmp 目录，不随交付包重新分发。
+
+保存后的每一页均由独立 pypdf 解析器检查：内容流字节、提取的 Unicode 文本、字体/ToUnicode/图片资源流、外部链接和页面边界一致，并检查新增的标准高亮和便签。三个真实论文的全部页面还进行 Core Graphics 渲染比较；400 页与扫描件检查首、中、末页。SDK 原生文本提取有时会改变独立页边文字块的排列顺序，因此保真依据是原始流和字体映射、独立解析与渲染，不把不同提取顺序冒充文字损坏或损坏已修复。
+
+`CorpusChecks` 记录缓存预热后的打开完成耗时、搜索和保存耗时、主线程心跳间隔及 RSS。它包含保存重开与渲染验证开销，不能当作纯阅读状态的内存占用或滚动帧率基准。详见候选包 verification/corpus.json。
+
+原生 XCUI 测试已增加独立目标和脚本：
+
+```sh
+./scripts/ui-test.sh
+```
+
+测试目标初次构建通过，但执行阶段在启动 UI 驱动前被 macOS 系统认证拒绝：`Authentication canceled. System authentication is running.`。本机 Developer mode 为 disabled，没有擅自修改系统设置。实际鼠标/键盘全流程仍未通过，不能将「构建了 UI 测试」记为 UI 验收成功。
+
+## 实际环境
+
+- 验证日期：2026-10-30（Asia/Shanghai）
+- Intel Mac，x86_64，macOS 15.8（24H23）
+- Xcode 16.2（16C5032a），Swift 6.0.3，项目采用 Swift 5 语言模式
+- SDK：macOS 15.2；最低部署版本：15.0
+- Release 使用标准架构，生成包含 x86_64 与 arm64 的 Universal 应用；实际运行验证仅在 Intel 上执行
+
+## 已执行命令
+
+```sh
+python3 scripts/generate_project.py
+xcodebuild -project AdaptivePDF.xcodeproj -scheme AdaptivePDF \
+  -configuration Debug -derivedDataPath build/DerivedData \
+  -destination 'platform=macOS,arch=x86_64' build
+./scripts/build.sh Release
+ADAPTIVEPDF_TEST_ROOT="$PWD" \
+  build/DerivedData/Build/Products/Debug/AdaptivePDF.app/Contents/MacOS/AdaptivePDF --self-test
+codesign --verify --deep --strict --verbose=2 build/AdaptivePDF.app
+plutil -lint AdaptivePDF/Info.plist AdaptivePDF.xcodeproj/project.pbxproj
+```
+
+初版 Debug 和 Release 均构建成功，ad-hoc 签名验证通过。后续发布检查发现初版 Release 注入了 get-task-allow；build 2 已禁止 Release 注入调试权限，并以实际 entitlements 校验。尚未进行 Developer ID 分发签名或公证。
+
+初版原生集成检查通过 **45 项断言**，独立 pypdf 检查通过 **5 项检查**。集成检查通过真实 PDFKit、NSDocument、窗口、搜索通知和原生关闭对话框执行，不是替身对象。测试会修改自己的测试输出和临时外观偏好，并在正常结束时恢复原外观偏好；不会打开或写入用户的其他 PDF。
+
+## 复现
+
+```sh
+./scripts/test.sh
+```
+
+build 2 新增了原生评论编辑框的取消、提交、独立撤销与重做，旧高亮误改色回归，导入批注与锁定保护，以及真实后台加载检查；该阶段原生集成共 **58 项断言**。生产版不再包含自测入口；`scripts/release.sh --candidate` 单独验证 Debug 与优化配置，再校验并启动未注入测试代码的实际生产包。
+
+原生测试二进制不依赖 Python；关闭/退出测试的脚本编排需要 Python 3 标准库。第二个解析器的结构检查需安装 `pypdf`；如未安装，脚本明确标记跳过。发布检查要求独立解析器可用。可指定已准备好的解释器：
+
+```sh
+ADAPTIVEPDF_PYTHON=/path/to/python3 ./scripts/test.sh
+```
+
+本次独立检查实际使用 Codex 捆绑 Python 中的 pypdf。重新生成已随项目提供的测试样本，另需 `reportlab`、`pillow`、`pypdf` 以及 pypdf 的 AES 加密支持：
+
+```sh
+python3 Tests/generate_fixtures.py
+python3 Tests/verify_saved_pdf.py
+```
+
+`Academic.pdf` 包含三页可选择正文、跨行文字、公式文本、三条彩色矢量曲线和嵌入的 RGB 渐变图；第二页旋转 90° 且 CropBox 有偏移。`Encrypted.pdf` 的阅读密码为 `reader`。它们是合成回归样本，并不代表复杂真实论文全集。
+
+输出位于 `tmp/test-output/`；保存后 PDF、主题切换前后 PDF 和三页 PNG 可用于人工检查。故意传入损坏 PDF 的负面测试可能让 Core Graphics 输出一条 PDF 错误日志，该条日志不代表正常样本加载失败。
+
+## 验证结果与实际边界
+
+| 验收项 | 结果 |
+| --- | --- |
+| Intel macOS 15 启动、创建原生文档窗口 | 已通过 |
+| 加载普通文本 PDF、页数和文字提取 | 已通过 |
+| 缩放、适合宽度、前后翻页、异步搜索三页与定位 | 已通过；真实鼠标滚动与键盘输入全流程未验证 |
+| PDFView 响应链分发阅读操作 | 已通过；所有键位的人工逐项验证未执行 |
+| Follow System 的深浅色继承回调 | 通过 NSApp.appearance 注入外观验证，两个方向均通过；系统设置界面的真实切换未验证 |
+| 强制 Dark、强制 Light、Original 策略 | 已通过 |
+| 多窗口打开与主题同步 | 已通过，使用注册的 PDF 文档类型打开第二窗口 |
+| 跨行和跨页标准高亮、旋转/裁切页面 | 已通过程序化 PDFSelection 与导出页面检查；特殊文字方向未验证 |
+| 高亮颜色、评论、便签保存后重读 | 已通过；应用内命中测试覆盖浅/深色及旋转/裁切页面，原生复制后端也已通过；真实鼠标全流程未逐项验证 |
+| 删除、撤销、重做、未保存标记 | 已通过 |
+| NSDocument 安全另存为后端、原文件覆盖保存和成功后清除修改状态 | 已通过；远程另存为面板的实际确认仍待 XCUI 验证 |
+| 错误路径、无写入权限目录、失败后保留修改 | 已通过 |
+| 未保存关闭、实际退出与保存/放弃/取消分支 | 已通过 10 个隔离原生进程场景，包含多文档与关闭时保存失败；真实键鼠触发全流程仍待验收 |
+| 保存重读的标准 /Highlight、/QuadPoints、/Text、/Contents | PDFKit 与 pypdf 两个解析器均通过 |
+| 图片原始数据、页旋转与页面边界保持 | 合成样本与 490 页回归已通过独立检查 |
+| 主题切换前后序列化页面内容流一致 | 已通过 |
+| 保存后正文页面渲染一致 | 合成三页和三篇真实论文全部 66 页通过；400 页及扫描件检查首/中/末页。Core Graphics 绘制基础内容，不计标准批注覆盖层 |
+| 密码错误拒绝、正确密码解锁、加密保存阻止 | 已通过 |
+| 损坏 PDF 拒绝 | 已通过 |
+| Preview / Acrobat 中的实际批注显示和编辑兼容性 | 未验证；独立解析已识别标准批注，不代替目标应用实测 |
+| Finder 打开方式、拖拽、所有菜单键位 | 已实现；人工完整验证未执行 |
+| 修改偏好后退出并重新启动 | 已通过六种组合、三个独立进程阶段的隔离偏好域检查；真实用户域的完整手工操作仍待 UI 验收 |
+| 后台文件加载 | 已通过 NSDocumentController 实际打开验证；主线程创建窗口与保存仍需长文档性能回归 |
+| 400 页、49 MB 扫描件、三篇真实论文 | 结构保真、文字/资源流、保存重开与渲染回归已通过；真实滚动交互仍未验证 |
+| 其他复杂透明度、特殊字体、打印色彩、PDF/A、签名 | 未全面验证 |
+| Apple Silicon 上启动与交互 | 未验证，只有 arm64 构建通过 |
+
+## 人工验收步骤
+
+1. 在 Finder 打开应用，通过 ⌘O 打开一份普通论文；再通过 Finder「打开方式」和拖入阅读窗口各打开一份 PDF。
+2. 滚动、选择文字、⌘C，切换连续和单页模式，尝试所有缩放及页码快捷键。
+3. 在 Follow System 下切换系统设置的浅色/深色，确认已有两个窗口同步变化且页码、缩放和选区保持。
+4. 选取跨行、跨页文字，分别添加四种高亮，检查旋转页和双栏页的坐标。深色下检查可读性，Original 下核对图表颜色。
+5. 添加高亮评论、在页面点击添加便签、编辑文字与颜色、从侧栏跳转、删除并撤销/重做。
+6. ⌘S 保存并重开，用 Preview 或另一款 PDF 阅读器查看并编辑这些标准批注。
+7. 创建未保存修改，分别验证关闭时的取消、放弃、保存；再验证退出整个应用、多窗口退出和只读原文件的处理。
+8. 使用带照片、热力图、透明图层与特殊字体的真实论文回归；确认 Basic Dark 的颜色改变符合界面告知，Original 完整保色。
+
+当前没有将任何未执行的人工项目标记为通过。后续应先扩大真实 PDF 回归覆盖与压力测试，再考虑智能保色渲染。
