@@ -9,7 +9,7 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
     private let split = NSSplitView()
     private let sidebar = NSView()
     private let sidebarTabs = NSSegmentedControl(labels: ["页面", "批注", "搜索"], trackingMode: .selectOne, target: nil, action: nil)
-    private let thumbnails = PDFThumbnailView()
+    let thumbnails = PDFThumbnailSidebar()
     private let list = AnnotationTableView()
     private let listScroll = NSScrollView()
     let searchField = NSSearchField()
@@ -48,7 +48,10 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
         buildToolbar()
         pdfView.document = pdf
         pdfView.imagePreservingRenderer = readerDocument.imagePreservingRenderer
-        pdfView.onRenderingChanged = { [weak self] in self?.updateStatus() }
+        pdfView.onRenderingChanged = { [weak self] in
+            self?.thumbnails.reload()
+            self?.updateStatus()
+        }
         thumbnails.pdfView = pdfView
         pdfView.onAppearanceChanged = { [weak self] in self?.updateReadingAppearance() }
         pdfView.onAnnotationClicked = { [weak self] annotation, edit in
@@ -155,7 +158,6 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
         sidebarTabs.selectedSegment = 0
         sidebarTabs.translatesAutoresizingMaskIntoConstraints = false
         sidebar.addSubview(sidebarTabs)
-        thumbnails.thumbnailSize = NSSize(width: 130, height: 170)
         thumbnails.translatesAutoresizingMaskIntoConstraints = false
         sidebar.addSubview(thumbnails)
         listScroll.translatesAutoresizingMaskIntoConstraints = false
@@ -340,6 +342,7 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
     private func updateReadingAppearance() {
         pdfView.applyReadingAppearance(dark: AppearancePreferences.isDark(pdfView.effectiveAppearance),
                                        strategy: AppearancePreferences.strategy)
+        thumbnails.updateReadingAppearance()
         updateStatus()
     }
     @objc private func themeChanged(_ sender: NSPopUpButton) {
@@ -375,6 +378,7 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
             pageField.integerValue = pdf.index(for: page) + 1
         }
         pageCount.stringValue = "/ \(pdf.pageCount)"
+        thumbnails.selectCurrentPage()
     }
     @objc private func textSelectionChanged() {
         guard !(pdfView.currentSelection?.string ?? "").isEmpty else { return }
@@ -625,6 +629,7 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
         }
     }
     @objc func annotationsChanged(_ notification: Notification? = nil) {
+        thumbnails.reload()
         if let page = notification?.userInfo?["page"] as? PDFPage {
             let index = pdf.index(for: page)
             if index != NSNotFound { notesByPage[index] = AnnotationStore.entries(on: page, pageIndex: index) }

@@ -32,6 +32,11 @@ enum IntegrationChecks {
         }
         do {
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+            if ProcessInfo.processInfo.environment["ADAPTIVEPDF_THUMBNAILS_ONLY"] == "1" {
+                try await ThumbnailChecks.run(root: root, output: output)
+                print("ALL THUMBNAIL CHECKS PASSED")
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["ADAPTIVEPDF_IMAGE_ONLY"] == "1" {
                 try ImagePreservationChecks.run(root: root, output: output, capture: true)
                 print("ALL IMAGE PRESERVATION CHECKS PASSED")
@@ -391,6 +396,7 @@ enum IntegrationChecks {
             try await DocumentLifecycleChecks.run(root: root, output: output)
             try await ReaderInteractionChecks.run(root: root, output: output)
             try ImagePreservationChecks.run(root: root, output: output)
+            try await ThumbnailChecks.run(root: root, output: output)
 
             // Render original and annotated pages with PDFKit to inspect geometry
             // independently of the compositor-only dark mode.

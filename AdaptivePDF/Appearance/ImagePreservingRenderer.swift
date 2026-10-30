@@ -68,6 +68,24 @@ final class ImagePreservingRenderer {
         Self.drawPage(page, box: box, in: context, whiteBackground: true)
         return true
     }
+    /// The sidebar uses the same original/display vector documents as the page.
+    /// Render small images off the main thread; annotations are overlaid on main.
+    func thumbnail(index: Int, box: PDFDisplayBox, maxSize: CGSize, scale: CGFloat, dark: Bool) -> CGImage? {
+        lock.lock(); defer { lock.unlock() }
+        guard let page = original?.page(at: index + 1) else { return nil }
+        let rect = page.getBoxRect(box.cgBox)
+        let rotated = abs(page.rotationAngle) % 180 == 90
+        let size = rotated ? CGSize(width: rect.height, height: rect.width) : rect.size
+        guard size.width > 0, size.height > 0 else { return nil }
+        let factor = min(maxSize.width / size.width, maxSize.height / size.height) * scale
+        let width = max(1, Int((size.width * factor).rounded())), height = max(1, Int((size.height * factor).rounded()))
+        guard let context = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                                      bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        context.scaleBy(x: CGFloat(width) / size.width, y: CGFloat(height) / size.height)
+        if !dark || !draw(index: index, box: box, in: context) { _ = drawOriginal(index: index, box: box, in: context) }
+        return context.makeImage()
+    }
     static func drawPage(_ page: CGPDFPage, box: PDFDisplayBox, in context: CGContext, whiteBackground: Bool = false) {
         let cgBox: CGPDFBox
         switch box {

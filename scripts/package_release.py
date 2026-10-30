@@ -27,6 +27,7 @@ assert reports["debug"]["assertions"] == reports["optimized"]["assertions"], "De
 info = plistlib.loads((args.app / "Contents/Info.plist").read_bytes())
 close_flows = {}
 appearance_restarts = {}
+thumbnail_checks = {}
 expected_close = {"window-save", "window-discard", "window-cancel", "window-save-failure",
                   "quit-save", "quit-discard", "quit-cancel", "multi-quit-review-save",
                   "multi-quit-discard", "multi-quit-cancel"}
@@ -49,6 +50,10 @@ for variant in ["debug", "optimized"]:
                    phase["assertion_count"] == len(phase["assertions"]) for phase in case["phases"].values())
     assert appearance["assertion_count"] == sum(phase["assertion_count"] for case in appearance["cases"] for phase in case["phases"].values())
     appearance_restarts[variant] = {"combinations": len(appearance["cases"]), "assertions": appearance["assertion_count"]}
+    thumbnails = json.loads((out / f"verification/{variant}-thumbnails.json").read_text())
+    assert thumbnails["status"] == "passed" and len(thumbnails["image_pixel_checks"]) == 9
+    assert all(case["mean_absolute_channel_difference"] < 0.5 for case in thumbnails["image_pixel_checks"])
+    thumbnail_checks[variant] = thumbnails
 assert all(reports[name]["app_version"] == info["CFBundleShortVersionString"] and
            reports[name]["app_build"] == info["CFBundleVersion"] for name in ["debug", "optimized"])
 if args.notarized:
@@ -103,6 +108,7 @@ manifest = {
     "independent_pointer_pdf_checks_per_configuration": 2,
     "close_quit_regression": close_flows,
     "appearance_restart_regression": appearance_restarts,
+    "thumbnail_regression": thumbnail_checks,
     "corpus_regression": corpus_summary,
     "artifacts": artifacts, "source_sha256": source_hashes,
 }
