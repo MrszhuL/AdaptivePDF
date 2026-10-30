@@ -64,7 +64,7 @@ sources = []
 for base in ["AdaptivePDF", "AdaptivePDF.xcodeproj", "Tests", "scripts", "Verification", "Vendor", "docs"]:
     sources.extend(path for path in (root / base).rglob("*") if path.is_file() and
                    not {"__pycache__", "xcuserdata"}.intersection(path.parts))
-sources.extend(root / name for name in ["README.md", "TESTING.md", "RELEASE.md", ".gitignore"])
+sources.extend(root / name for name in ["README.md", "TESTING.md", "RELEASE.md", ".gitignore", ".gitattributes"])
 source_hashes = {str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest() for path in sorted(sources)}
 source_archive = out / "AdaptivePDF-source.zip"
 with zipfile.ZipFile(source_archive, "w", zipfile.ZIP_DEFLATED) as archive:
