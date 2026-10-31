@@ -44,7 +44,7 @@ def inline_images(reader):
             if op == b"INLINE IMAGE"]
 
 records = []
-for name in ["Academic", "ImagePreservation", "AlphaPreservation"]:
+for name in ["Academic", "ImagePreservation", "AlphaPreservation", "VectorPreservation"]:
     original = PdfReader(root / f"Tests/Fixtures/{name}.pdf")
     display = PdfReader(args.output / f"{name}-image-display.pdf")
     assert images(original) == images(display), "Encoded image or alpha-mask bytes changed"
@@ -90,8 +90,36 @@ for page in [1, 3]:
 light = Image.open(args.output / "alpha-source-2.png").convert("RGB")
 dark = Image.open(args.output / "alpha-display-2.png").convert("RGB")
 assert ImageChops.difference(light,dark).getbbox() is None, "Nested complex blend fallback changed appearance"
+vector_results = []
+for page, regions in {1: [(60,440,480,220)], 2: [(60,440,480,220)],
+                      3: [(80,180,176,384)], 4: [(60,440,480,220),(80,160,440,160)]}.items():
+    light = Image.open(args.output / f"vector-source-{page}.png").convert("RGB")
+    dark = Image.open(args.output / f"vector-display-{page}.png").convert("RGB")
+    assert max(dark.getpixel((3,3))) < 64, "Vector figure made the whole page white"
+    for x,y,w,h in regions:
+        # Include labels, strokes, neutral cells, transparent fills and nested
+        # content across the whole figure, trimming only one edge pixel.
+        box = (round(x*light.width/612)+1,round((792-y-h)*light.height/792)+1,
+               round((x+w)*light.width/612)-1,round((792-y)*light.height/792)-1)
+        diff = ImageChops.difference(light.crop(box), dark.crop(box))
+        mean = ImageStat.Stat(diff).mean
+        maximum = max(channel[1] for channel in diff.getextrema())
+        assert maximum == 0, ("complete vector figure",page,box,mean,maximum)
+        vector_results.append({"page":page,"region":[x,y,w,h],"mean_absolute_channel_difference":mean,
+                               "maximum_channel_difference":maximum})
+    if page == 2:
+        # A full-page wrapper must still darken body text outside its figure.
+        box = (80, 108, 900, 150)
+        a,b = light.crop(box),dark.crop(box)
+        left,right = a.load(),b.load()
+        pairs = [(left[x,y],right[x,y]) for y in range(a.height) for x in range(a.width) if max(left[x,y])<40]
+        assert pairs and sum(min(q)>170 for _,q in pairs)/len(pairs)>0.9, "Page-wrapper body text did not darken"
+    if page == 4:
+        point = (round(65*dark.width/612),round((792-145)*dark.height/792))
+        assert max(dark.getpixel(point)) < 64, "Figure backing escaped its clipping path"
 report = {"status": "passed", "objects": records, "image_pixel_checks": pixel_results,
           "opacity_image_pixel_checks": alpha_results, "nested_fallback_isolated": True,
+          "complete_vector_figure_checks": vector_results,
           "unsupported_page_original_pixels_exact": True}
 (args.output / "image-preservation.json").write_text(json.dumps(report, indent=2) + "\n")
 print(json.dumps(report))

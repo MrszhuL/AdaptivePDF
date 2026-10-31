@@ -5,6 +5,7 @@
 #include <qpdf/Pl_Buffer.hh>
 #include <algorithm>
 #include <cmath>
+#include <iomanip>
 #include <sstream>
 #include <stdexcept>
 #include <set>
@@ -12,9 +13,52 @@
 namespace {
 using Object = QPDFObjectHandle;
 using Token = QPDFTokenizer::Token;
-struct Colors {
+struct Matrix {
+    double a = 1, b = 0, c = 0, d = 1, e = 0, f = 0;
+    Matrix then(Matrix const& m) const {
+        return {a*m.a+c*m.b, b*m.a+d*m.b, a*m.c+c*m.d, b*m.c+d*m.d,
+                a*m.e+c*m.f+e, b*m.e+d*m.f+f};
+    }
+    static Matrix read(Object value) {
+        if (value.isNull()) return {};
+        if (!value.isArray() || value.getArrayNItems() != 6) throw std::runtime_error("Invalid form matrix");
+        double v[6];
+        for (int i = 0; i < 6; ++i) {
+            auto item = value.getArrayItem(i);
+            if (!item.isNumber() || !std::isfinite(item.getNumericValue())) throw std::runtime_error("Invalid form matrix");
+            v[i] = item.getNumericValue();
+        }
+        return {v[0], v[1], v[2], v[3], v[4], v[5]};
+    }
+};
+struct Rectangle {
+    double x = 0, y = 0, width = 1, height = 1;
+    static Rectangle read(Object value) {
+        if (!value.isArray() || value.getArrayNItems() != 4) throw std::runtime_error("Missing form bounds");
+        double v[4];
+        for (int i = 0; i < 4; ++i) {
+            auto item = value.getArrayItem(i);
+            if (!item.isNumber() || !std::isfinite(item.getNumericValue())) throw std::runtime_error("Invalid form bounds");
+            v[i] = item.getNumericValue();
+        }
+        return {std::min(v[0], v[2]), std::min(v[1], v[3]), std::abs(v[2]-v[0]), std::abs(v[3]-v[1])};
+    }
+    Rectangle transformed(Matrix const& m) const {
+        double x0 = m.a*x + m.c*y + m.e, y0 = m.b*x + m.d*y + m.f;
+        double xs[] = {x0, x0+m.a*width, x0+m.c*height, x0+m.a*width+m.c*height};
+        double ys[] = {y0, y0+m.b*width, y0+m.d*height, y0+m.b*width+m.d*height};
+        auto [xmin, xmax] = std::minmax_element(std::begin(xs), std::end(xs));
+        auto [ymin, ymax] = std::minmax_element(std::begin(ys), std::end(ys));
+        if (!std::isfinite(*xmin) || !std::isfinite(*xmax) || !std::isfinite(*ymin) || !std::isfinite(*ymax))
+            throw std::runtime_error("Invalid transformed form bounds");
+        return {*xmin, *ymin, *xmax-*xmin, *ymax-*ymin};
+    }
+};
+struct DrawingState {
     std::string fill = "/DeviceGray", stroke = "/DeviceGray";
+    std::string originalFill = "0 g\n", originalStroke = "0 G\n";
     double fillAlpha = 1, strokeAlpha = 1;
+    Matrix transform;
 };
 
 // Lexical tokens keep strings, comments and binary inline images out of the
@@ -22,8 +66,9 @@ struct Colors {
 class DarkTokens final : public Object::TokenFilter {
     QPDF& pdf;
     Object resources;
-    Colors colors;
-    std::vector<Colors> stack;
+    DrawingState colors;
+    Rectangle pageBounds;
+    std::vector<DrawingState> stack;
     std::vector<Token> operands;
     std::string pending;
     std::string failure, opaqueBackdrop;
@@ -66,6 +111,7 @@ class DarkTokens final : public Object::TokenFilter {
             values.push_back(x);
         }
         bool stroke = op == "G" || op == "RG" || op == "K" || op == "SC" || op == "SCN";
+        (stroke ? colors.originalStroke : colors.originalFill) = pending + " " + op + "\n";
         std::string space = stroke ? colors.stroke : colors.fill;
         if (op == "g" || op == "G") space = "/DeviceGray";
         if (op == "rg" || op == "RG") space = "/DeviceRGB";
@@ -87,7 +133,7 @@ class DarkTokens final : public Object::TokenFilter {
         else out << "0 0 0 " << 1-value << " " << (generic ? op : stroke ? "K" : "k") << "\n";
         return out.str();
     }
-    void backdrop() {
+    void backdrop(Rectangle rect = {}, Matrix matrix = {}) {
         if (path) throw std::runtime_error("Image inside an unfinished drawing path");
         if (colors.fillAlpha == 0) return;
         std::string reset;
@@ -106,7 +152,11 @@ class DarkTokens final : public Object::TokenFilter {
         }
         // Make only the backing opaque. Q restores the image's own alpha, so
         // translucent images retain their original white-paper appearance.
-        write("q " + reset + "1 1 1 rg 0 0 1 1 re f Q\n");
+        std::ostringstream out;
+        out << std::setprecision(17) << "q " << reset << "1 1 1 rg "
+            << matrix.a << " " << matrix.b << " " << matrix.c << " " << matrix.d << " " << matrix.e << " " << matrix.f << " cm "
+            << rect.x << " " << rect.y << " " << rect.width << " " << rect.height << " re f Q\n";
+        write(out.str());
     }
     void checkGraphicsState(Object state) {
         if (!state.isDictionary()) throw std::runtime_error("Missing graphics state");
@@ -140,12 +190,28 @@ class DarkTokens final : public Object::TokenFilter {
             // on ordinary white-paper PDFs, including image /SMask alpha.
             backdrop();
         } else if (dict.getKey("/Subtype").isNameAndEquals("/Form")) {
+            auto bounds = Rectangle::read(dict.getKey("/BBox"));
+            auto matrix = Matrix::read(dict.getKey("/Matrix"));
+            auto transform = colors.transform.then(matrix);
+            auto footprint = bounds.transformed(transform);
+            // A bounded Form is a complete graphic, including its own labels,
+            // paths, charts and nested images. Preserve that entire object on
+            // white paper instead of guessing which parts are body text.
+            // Page-sized wrappers are traversed so their body can still darken.
+            bool pageWrapper = footprint.width >= pageBounds.width * 0.98 &&
+                               footprint.height >= pageBounds.height * 0.98;
+            if (!pageWrapper) {
+                backdrop(bounds, matrix);
+                return "q\n" + colors.originalFill + colors.originalStroke + operands[0].getRawValue() + " Do\nQ\n";
+            }
             auto nested = ancestors;
             if (depth >= 24 || !nested.insert(object.getObjGen()).second)
                 throw std::runtime_error("Recursive form graph");
             auto formResources = dict.getKey("/Resources");
             if (formResources.isNull()) formResources = resources;
-            DarkTokens filter(pdf, formResources, colors, depth+1, budget, nested);
+            auto initial = colors;
+            initial.transform = transform;
+            DarkTokens filter(pdf, formResources, initial, depth+1, budget, pageBounds, nested);
             Pl_Buffer buffer("dark form");
             object.filterAsContents(&filter, &buffer);
             filter.checkSupported();
@@ -164,8 +230,8 @@ class DarkTokens final : public Object::TokenFilter {
         return "";
     }
   public:
-    DarkTokens(QPDF& pdf, Object resource, Colors initial, int depth, size_t& budget,
-               std::set<QPDFObjGen> ancestors = {}) : pdf(pdf), colors(initial), depth(depth), budget(budget), ancestors(ancestors) {
+    DarkTokens(QPDF& pdf, Object resource, DrawingState initial, int depth, size_t& budget, Rectangle pageBounds,
+               std::set<QPDFObjGen> ancestors = {}) : pdf(pdf), colors(initial), pageBounds(pageBounds), depth(depth), budget(budget), ancestors(ancestors) {
         resources = resource.isDictionary() ? resource.shallowCopy() : Object::newDictionary();
         auto objects = resources.getKey("/XObject");
         if (objects.isDictionary()) resources.replaceKey("/XObject", objects.shallowCopy());
@@ -207,7 +273,20 @@ class DarkTokens final : public Object::TokenFilter {
                 (op == "cs" ? colors.fill : colors.stroke) = name;
                 // Changing a color space resets its initial color to black.
                 std::string value = name == "/DeviceGray" ? "0.9" : name == "/DeviceRGB" ? "0.9 0.9 0.9" : "0 0 0 0.1";
+                std::string original = name == "/DeviceGray" ? "0" : name == "/DeviceRGB" ? "0 0 0" : "0 0 0 1";
+                (op == "cs" ? colors.originalFill : colors.originalStroke) = pending + " " + op + "\n" + original + (op == "cs" ? " sc\n" : " SC\n");
                 replacement = pending + " " + op + "\n" + value + (op == "cs" ? " sc\n" : " SC\n");
+            } else if (op == "cm") {
+                if (operands.size() != 6) throw std::runtime_error("Invalid transformation operator");
+                double v[6];
+                for (int i = 0; i < 6; ++i) {
+                    auto type = operands[i].getType();
+                    if (type != QPDFTokenizer::tt_integer && type != QPDFTokenizer::tt_real)
+                        throw std::runtime_error("Invalid transformation operand");
+                    v[i] = std::stod(operands[i].getValue());
+                    if (!std::isfinite(v[i])) throw std::runtime_error("Invalid transformation operand");
+                }
+                colors.transform = colors.transform.then({v[0], v[1], v[2], v[3], v[4], v[5]});
             } else if (op == "q") stack.push_back(colors);
             else if (op == "Q") {
                 if (stack.empty()) throw std::runtime_error("Unbalanced graphics state");
@@ -244,12 +323,12 @@ NSDictionary *APDFCreateImagePreservingDisplay(NSData *data, NSError **error) {
             bool success = false;
             NSString *reason = @"";
             try {
-                DarkTokens filter(pdf, page.getAttribute("/Resources", false), Colors{}, 0, budget);
+                auto box = page.getMediaBox();
+                DarkTokens filter(pdf, page.getAttribute("/Resources", false), DrawingState{}, 0, budget, Rectangle::read(box));
                 Pl_Buffer stream("dark page");
                 page.filterContents(&filter, &stream);
                 filter.checkSupported();
                 auto buffer = stream.getBufferSharedPointer();
-                auto box = page.getMediaBox();
                 double x = box.getArrayItem(0).getNumericValue(), y = box.getArrayItem(1).getNumericValue();
                 double w = box.getArrayItem(2).getNumericValue()-x, h = box.getArrayItem(3).getNumericValue()-y;
                 std::ostringstream prefix;

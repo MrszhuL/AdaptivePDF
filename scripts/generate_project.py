@@ -79,7 +79,7 @@ for owner in ["project", "target", "ui-target"]:
                 "ENABLE_HARDENED_RUNTIME": "YES", "ENABLE_APP_SANDBOX": "NO",
                 "LD_RUNPATH_SEARCH_PATHS": "$(inherited) @executable_path/../Frameworks",
                 "SUPPORTED_PLATFORMS": "macosx", "ARCHS": "$(ARCHS_STANDARD)",
-                "MARKETING_VERSION": "1.0.0", "CURRENT_PROJECT_VERSION": "11",
+                "MARKETING_VERSION": "1.0.0", "CURRENT_PROJECT_VERSION": "12",
                 "CODE_SIGN_INJECT_BASE_ENTITLEMENTS": "YES" if config == "Debug" else "NO",
                 "SWIFT_OBJC_BRIDGING_HEADER": "AdaptivePDF/AdaptivePDF-Bridging-Header.h",
                 "CLANG_CXX_LANGUAGE_STANDARD": "c++20", "CLANG_ENABLE_OBJC_ARC": "YES",

@@ -28,6 +28,7 @@ info = plistlib.loads((args.app / "Contents/Info.plist").read_bytes())
 close_flows = {}
 appearance_restarts = {}
 thumbnail_checks = {}
+figure_checks = {}
 expected_close = {"window-save", "window-discard", "window-cancel", "window-save-failure",
                   "quit-save", "quit-discard", "quit-cancel", "multi-quit-review-save",
                   "multi-quit-discard", "multi-quit-cancel"}
@@ -53,7 +54,16 @@ for variant in ["debug", "optimized"]:
     thumbnails = json.loads((out / f"verification/{variant}-thumbnails.json").read_text())
     assert thumbnails["status"] == "passed" and len(thumbnails["image_pixel_checks"]) == 9
     assert all(case["mean_absolute_channel_difference"] < 0.5 for case in thumbnails["image_pixel_checks"])
+    assert len(thumbnails["vector_figure_pixel_checks"]) == 1
+    assert all(case["mean_absolute_channel_difference"] < 0.5 for case in thumbnails["vector_figure_pixel_checks"])
     thumbnail_checks[variant] = thumbnails
+    figures = json.loads((out / f"verification/{variant}-image-preservation.json").read_text())
+    assert figures["status"] == "passed"
+    assert len(figures["image_pixel_checks"]) == 9 and len(figures["opacity_image_pixel_checks"]) == 8
+    assert len(figures["complete_vector_figure_checks"]) == 5
+    assert all(case["maximum_channel_difference"] == 0 for case in figures["complete_vector_figure_checks"])
+    figure_checks[variant] = {"raster_regions": 17, "complete_vector_figures": 5,
+                              "complete_figure_pixels_exact": True}
 assert all(reports[name]["app_version"] == info["CFBundleShortVersionString"] and
            reports[name]["app_build"] == info["CFBundleVersion"] for name in ["debug", "optimized"])
 if args.notarized:
@@ -109,6 +119,7 @@ manifest = {
     "close_quit_regression": close_flows,
     "appearance_restart_regression": appearance_restarts,
     "thumbnail_regression": thumbnail_checks,
+    "image_and_figure_regression": figure_checks,
     "corpus_regression": corpus_summary,
     "artifacts": artifacts, "source_sha256": source_hashes,
 }

@@ -83,6 +83,8 @@ for variant in debug optimized; do
   cp "$run_root/$variant-output/thumbnails.json" "$out/verification/$variant-thumbnails.json"
   cp "$run_root/$variant-output/thumbnail-sidebar-dark.png" "$out/verification/$variant-thumbnail-sidebar-dark.png"
   cp "$run_root/$variant-output/thumbnail-sidebar-light.png" "$out/verification/$variant-thumbnail-sidebar-light.png"
+  cp "$run_root/$variant-output/thumbnail-vector-light.png" "$out/verification/$variant-thumbnail-vector-light.png"
+  cp "$run_root/$variant-output/thumbnail-vector-dark.png" "$out/verification/$variant-thumbnail-vector-dark.png"
   if [[ -f "$run_root/$variant-output/dark-pixels.json" ]]; then
     cp "$run_root/$variant-output/dark-pixels.json" "$out/verification/$variant-dark-pixels.json"
     cp "$run_root/$variant-output/screenshots.json" "$out/verification/$variant-screenshots.json"

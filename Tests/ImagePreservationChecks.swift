@@ -4,7 +4,7 @@ import PDFKit
 
 @MainActor enum ImagePreservationChecks {
     static func run(root: URL, output: URL, capture: Bool = false) throws {
-        for name in ["Academic", "ImagePreservation", "AlphaPreservation"] {
+        for name in ["Academic", "ImagePreservation", "AlphaPreservation", "VectorPreservation"] {
             let source = root.appendingPathComponent("Tests/Fixtures/\(name).pdf")
             let data = try Data(contentsOf: source)
             var error: NSError?
@@ -12,7 +12,13 @@ import PDFKit
                   let supported = result["supported"] as? [Bool] else {
                 throw IntegrationChecks.Failure(description: "Image-preserving display failed: \(String(describing: error))")
             }
-            let expected = name == "Academic" ? [true, true, true] : name == "AlphaPreservation" ? [true, false, true] : [true, true, true, true, false]
+            let expected: [Bool]
+            switch name {
+            case "Academic": expected = [true, true, true]
+            case "AlphaPreservation": expected = [true, false, true]
+            case "VectorPreservation": expected = [true, true, true, true]
+            default: expected = [true, true, true, true, false]
+            }
             print("IMAGE_SUPPORT \(name): \(supported) \(result["reasons"] ?? "")")
             try IntegrationChecks.require(supported == expected, "\(name): image-preserving pages and complex-transparency fallback are explicit")
             let original = PDFDocument(data: data)!, display = PDFDocument(data: bytes)!
@@ -22,11 +28,11 @@ import PDFKit
                 let a = original.page(at: index)!, b = display.page(at: index)!
                 try IntegrationChecks.require(a.rotation == b.rotation && a.bounds(for: .cropBox) == b.bounds(for: .cropBox),
                                               "\(name) page \(index+1): display copy preserves rotation and crop geometry")
-                if name == "ImagePreservation" || name == "AlphaPreservation" {
+                if name != "Academic" {
                     for (label, page) in [("source", a), ("display", b)] {
                         let image = page.thumbnail(of: NSSize(width: 1224, height: 1584), for: .cropBox)
                         let bitmap = NSBitmapImageRep(data: image.tiffRepresentation!)!
-                        let prefix = name == "AlphaPreservation" ? "alpha" : "preservation"
+                        let prefix = name == "VectorPreservation" ? "vector" : name == "AlphaPreservation" ? "alpha" : "preservation"
                         try bitmap.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent("\(prefix)-\(label)-\(index+1).png"))
                     }
                 }

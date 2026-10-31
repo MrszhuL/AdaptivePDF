@@ -24,7 +24,7 @@ enum DarkStrategy: String, CaseIterable {
     var title: String {
         switch self {
         case .original: return "Original · PDF 保持原色（不随主题改变）"
-        case .preserveImages: return "保留图片颜色 · 深色页面"
+        case .preserveImages: return "保留图片与插图 · 深色页面"
         case .basic: return "Basic Dark · 整页反色（图片也会变色）"
         }
     }

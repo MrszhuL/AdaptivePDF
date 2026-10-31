@@ -130,6 +130,31 @@ import PDFKit
         let replacedThumbnail = try await image(0)
         try IntegrationChecks.require(sidebar.table.numberOfRows == 3 && paper(replacedThumbnail) > 0.98,
                                       "Replacing the document discards old thumbnail rows and cached images")
+        try document.read(from: root.appendingPathComponent("Tests/Fixtures/VectorPreservation.pdf"), ofType: "com.adobe.pdf")
+        let vectorLight = try await image(0)
+        AppearancePreferences.selectReadingTheme(.dark)
+        let vectorDeadline = Date().addingTimeInterval(20)
+        while controller.pdfView.imagePreservingRenderer?.isPreparing == true && Date() < vectorDeadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let vectorDark = try await image(0)
+        try IntegrationChecks.require(paper(vectorDark) < 0.25,
+                                      "Vector figure thumbnails retain dark surrounding paper")
+        let sx = CGFloat(vectorLight.pixelsWide) / 612, sy = CGFloat(vectorLight.pixelsHigh) / 792
+        let xs = Int(ceil(62 * sx))..<Int(floor(538 * sx))
+        let ys = Int(ceil(134 * sy))..<Int(floor(350 * sy))
+        var vectorDifference: CGFloat = 0
+        for y in ys { for x in xs {
+            let a = vectorLight.colorAt(x: x, y: y)!.usingColorSpace(.sRGB)!
+            let b = vectorDark.colorAt(x: x, y: y)!.usingColorSpace(.sRGB)!
+            vectorDifference += abs(a.redComponent-b.redComponent) + abs(a.greenComponent-b.greenComponent) + abs(a.blueComponent-b.blueComponent)
+        } }
+        let vectorMean = vectorDifference * 255 / CGFloat(xs.count * ys.count * 3)
+        try IntegrationChecks.require(vectorMean < 0.5,
+                                      "Complete vector figure labels, paths and fills retain original thumbnail colors")
+        try write(vectorLight, "thumbnail-vector-light.png")
+        try write(vectorDark, "thumbnail-vector-dark.png")
         let encrypted = PDFReaderDocument()
         try encrypted.read(from: root.appendingPathComponent("Tests/Fixtures/Encrypted.pdf"), ofType: "com.adobe.pdf")
         let unlocked = encrypted.pdf!.unlock(withPassword: "reader")
@@ -142,7 +167,8 @@ import PDFKit
         }
         try IntegrationChecks.require(encryptedSidebar.image(forPage: 0) != nil, "Unlocked encrypted pages retain native original thumbnails")
         encrypted.close()
-        try JSONSerialization.data(withJSONObject: ["status": "passed", "image_pixel_checks": comparisons], options: [.prettyPrinted, .sortedKeys])
+        try JSONSerialization.data(withJSONObject: ["status": "passed", "image_pixel_checks": comparisons,
+            "vector_figure_pixel_checks": [["page": 1, "mean_absolute_channel_difference": vectorMean]]], options: [.prettyPrinted, .sortedKeys])
             .write(to: output.appendingPathComponent("thumbnails.json"))
     }
 }
