@@ -29,6 +29,7 @@ close_flows = {}
 appearance_restarts = {}
 thumbnail_checks = {}
 figure_checks = {}
+visual_checks = {}
 expected_close = {"window-save", "window-discard", "window-cancel", "window-save-failure",
                   "quit-save", "quit-discard", "quit-cancel", "multi-quit-review-save",
                   "multi-quit-discard", "multi-quit-cancel"}
@@ -64,6 +65,14 @@ for variant in ["debug", "optimized"]:
     assert all(case["maximum_channel_difference"] == 0 for case in figures["complete_vector_figure_checks"])
     figure_checks[variant] = {"raster_regions": 17, "complete_vector_figures": 5,
                               "complete_figure_pixels_exact": True}
+    visual = json.loads((out / f"verification/{variant}-visual.json").read_text())
+    assert visual["status"] == visual["color_palette_checks"] == "passed"
+    assert visual["app_build"] == info["CFBundleVersion"]
+    assert {case["name"] for case in visual["cases"]} == {"light", "dark", "compact"}
+    assert all(case["title_and_toolbar_height"] <= 44 for case in visual["cases"])
+    visual["full_window_capture_available"] = all(case["screen_capture_exit"] == 0 for case in visual["cases"])
+    visual_checks[variant] = visual
+assert any(visual["full_window_capture_available"] for visual in visual_checks.values()), "No complete window capture is available for visual review"
 assert all(reports[name]["app_version"] == info["CFBundleShortVersionString"] and
            reports[name]["app_build"] == info["CFBundleVersion"] for name in ["debug", "optimized"])
 if args.notarized:
@@ -110,6 +119,7 @@ manifest = {
     "notarized": args.notarized, "ready_for_public_distribution": False,
     "remaining_gates": ["native end-to-end UI authorization and QA", "Preview interoperability",
                         "publisher identity, bundle identifier, support contact and distribution license"]
+        + [f"{variant} full-window visual capture" for variant, visual in visual_checks.items() if not visual["full_window_capture_available"]]
         + ([] if corpus_summary["status"] == "passed" else ["full corpus regression"])
         + ([] if args.notarized else ["Developer ID signature", "Apple notarization and stapling"]),
     "automated_assertions_per_configuration": reports["debug"]["assertion_count"],
@@ -120,6 +130,7 @@ manifest = {
     "appearance_restart_regression": appearance_restarts,
     "thumbnail_regression": thumbnail_checks,
     "image_and_figure_regression": figure_checks,
+    "native_toolbar_palette_regression": visual_checks,
     "corpus_regression": corpus_summary,
     "artifacts": artifacts, "source_sha256": source_hashes,
 }

@@ -38,6 +38,10 @@ for variant in debug optimized; do
   "$test_python" Tests/verify_forms.py --output "$run_root/$variant-output" > "$run_root/$variant-forms.log"
   "$test_python" Tests/verify_pointer_pdf.py --output "$run_root/$variant-output" > "$run_root/$variant-pointer.log"
   "$test_python" Tests/verify_image_preservation.py --output "$run_root/$variant-output" > "$run_root/$variant-image-preservation.log"
+  echo "Running $variant native toolbar, palette and visual checks…"
+  ADAPTIVEPDF_TEST_ROOT="$PWD" ADAPTIVEPDF_TEST_OUTPUT="$run_root/$variant-visual" ADAPTIVEPDF_VISUAL_ONLY=1 \
+    "$run_root/$variant/Build/Products/$configuration/AdaptivePDF.app/Contents/MacOS/AdaptivePDF" \
+    --self-test > "$run_root/$variant-visual.log" 2>&1
   echo "Running $variant isolated close and quit flows…"
   "$test_python" scripts/run_close_flows.py --require-independent \
     --app "$run_root/$variant/Build/Products/$configuration/AdaptivePDF.app" \
@@ -85,6 +89,11 @@ for variant in debug optimized; do
   cp "$run_root/$variant-output/thumbnail-sidebar-light.png" "$out/verification/$variant-thumbnail-sidebar-light.png"
   cp "$run_root/$variant-output/thumbnail-vector-light.png" "$out/verification/$variant-thumbnail-vector-light.png"
   cp "$run_root/$variant-output/thumbnail-vector-dark.png" "$out/verification/$variant-thumbnail-vector-dark.png"
+  cp "$run_root/$variant-visual/reader-visual.json" "$out/verification/$variant-visual.json"
+  cp "$run_root/$variant-visual.log" "$out/verification/$variant-visual.log"
+  if [[ -f "$run_root/$variant-visual/highlight-palette-window.png" ]]; then
+    cp "$run_root/$variant-visual/highlight-palette-window.png" "$out/verification/$variant-highlight-palette.png"
+  fi
   if [[ -f "$run_root/$variant-output/dark-pixels.json" ]]; then
     cp "$run_root/$variant-output/dark-pixels.json" "$out/verification/$variant-dark-pixels.json"
     cp "$run_root/$variant-output/screenshots.json" "$out/verification/$variant-screenshots.json"

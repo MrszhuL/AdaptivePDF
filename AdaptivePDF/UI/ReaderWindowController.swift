@@ -22,10 +22,13 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
     private let status = NSTextField(labelWithString: "")
     private let statusIcon = NSImageView()
     private let readingInfo = NSTextField(labelWithString: "")
+    private let readingProgress = ReaderProgressView()
     private let previousButton = NSButton()
     private let nextButton = NSButton()
     private let themePopup = NSPopUpButton()
-    private let colorPopup = NSPopUpButton()
+    private let colorButton = ReaderToolbarButton()
+    private let colorPopover = NSPopover()
+    private var highlightColor = HighlightColor.yellow
     private let displayPopup = NSPopUpButton()
     private var notes: [AnnotationEntry] = []
     private var notesByPage: [Int: [AnnotationEntry]] = [:]
@@ -50,6 +53,7 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
         window.minSize = NSSize(width: 820, height: 540)
         window.isRestorable = false
         window.title = readerDocument.displayName
+        window.titlebarAppearsTransparent = true
         window.tabbingMode = .disallowed
         window.center()
         buildContent()
@@ -144,11 +148,9 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
         let footer = ReaderSurface(fill: ReaderStyle.footer)
         footer.translatesAutoresizingMaskIntoConstraints = false
         content.addSubview(footer)
-        let separator = NSBox()
-        separator.boxType = .separator
-        separator.translatesAutoresizingMaskIntoConstraints = false
-        footer.addSubview(separator)
-        status.font = .systemFont(ofSize: 10)
+        readingProgress.translatesAutoresizingMaskIntoConstraints = false
+        footer.addSubview(readingProgress)
+        status.font = .systemFont(ofSize: 10.5)
         status.textColor = .secondaryLabelColor
         status.lineBreakMode = .byTruncatingTail
         status.translatesAutoresizingMaskIntoConstraints = false
@@ -157,7 +159,7 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
         statusIcon.contentTintColor = .secondaryLabelColor
         statusIcon.translatesAutoresizingMaskIntoConstraints = false
         footer.addSubview(statusIcon)
-        readingInfo.font = .monospacedDigitSystemFont(ofSize: 10,weight: .regular)
+        readingInfo.font = .monospacedDigitSystemFont(ofSize: 10.5,weight: .regular)
         readingInfo.textColor = .secondaryLabelColor
         readingInfo.setContentCompressionResistancePriority(.required,for: .horizontal)
         readingInfo.translatesAutoresizingMaskIntoConstraints = false
@@ -170,11 +172,12 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
             footer.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             footer.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             footer.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-            footer.heightAnchor.constraint(equalToConstant: 30),
-            separator.topAnchor.constraint(equalTo: footer.topAnchor),
-            separator.leadingAnchor.constraint(equalTo: footer.leadingAnchor),
-            separator.trailingAnchor.constraint(equalTo: footer.trailingAnchor),
-            statusIcon.leadingAnchor.constraint(equalTo: footer.leadingAnchor,constant: 14),
+            footer.heightAnchor.constraint(equalToConstant: 26),
+            readingProgress.topAnchor.constraint(equalTo: footer.topAnchor),
+            readingProgress.leadingAnchor.constraint(equalTo: footer.leadingAnchor),
+            readingProgress.trailingAnchor.constraint(equalTo: footer.trailingAnchor),
+            readingProgress.heightAnchor.constraint(equalToConstant: 1),
+            statusIcon.leadingAnchor.constraint(equalTo: footer.leadingAnchor,constant: 18),
             statusIcon.centerYAnchor.constraint(equalTo: footer.centerYAnchor),
             statusIcon.widthAnchor.constraint(equalToConstant: 12), statusIcon.heightAnchor.constraint(equalToConstant: 12),
             status.leadingAnchor.constraint(equalTo: statusIcon.trailingAnchor,constant: 7),
@@ -183,14 +186,14 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
             readingInfo.trailingAnchor.constraint(equalTo: footer.trailingAnchor,constant: -16),
             readingInfo.centerYAnchor.constraint(equalTo: footer.centerYAnchor)
         ])
-        sidebar.frame.size.width = 224
+        sidebar.frame.size.width = 212
         split.addArrangedSubview(sidebar)
         split.addArrangedSubview(pdfView)
         split.setHoldingPriority(.defaultHigh, forSubviewAt: 0)
         sidebar.widthAnchor.constraint(greaterThanOrEqualToConstant: 190).isActive = true
         sidebar.widthAnchor.constraint(lessThanOrEqualToConstant: 360).isActive = true
-        sidebarHeading.font = .systemFont(ofSize: 13,weight: .semibold)
-        sidebarDetail.font = .systemFont(ofSize: 10)
+        sidebarHeading.font = .systemFont(ofSize: 14,weight: .semibold)
+        sidebarDetail.font = .systemFont(ofSize: 11)
         sidebarDetail.textColor = .secondaryLabelColor
         for label in [sidebarHeading,sidebarDetail] { label.translatesAutoresizingMaskIntoConstraints = false; sidebar.addSubview(label) }
         sidebarTabs.target = self
@@ -198,7 +201,10 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
         sidebarTabs.selectedSegment = 0
         sidebarTabs.font = .systemFont(ofSize: 11,weight: .medium)
         sidebarTabs.segmentStyle = .rounded
-        sidebarTabs.segmentDistribution = .fill
+        sidebarTabs.segmentDistribution = .fillEqually
+        for (index,symbol) in ["square.grid.2x2","highlighter","magnifyingglass"].enumerated() {
+            sidebarTabs.setImage(ReaderStyle.symbol(symbol,size: 11),forSegment: index)
+        }
         sidebarTabs.translatesAutoresizingMaskIntoConstraints = false
         sidebar.addSubview(sidebarTabs)
         thumbnails.translatesAutoresizingMaskIntoConstraints = false
@@ -212,7 +218,7 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
         list.addTableColumn(NSTableColumn(identifier: NSUserInterfaceItemIdentifier("entry")))
         list.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
         list.backgroundColor = .clear
-        list.rowHeight = 88
+        list.rowHeight = 96
         list.intercellSpacing = .zero
         list.focusRingType = .none
         list.dataSource = self
@@ -230,27 +236,27 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
         sidebar.addSubview(emptyState)
         for view in [thumbnails, listScroll,emptyState] {
             NSLayoutConstraint.activate([
-                view.topAnchor.constraint(equalTo: sidebarTabs.bottomAnchor, constant: 10),
+                view.topAnchor.constraint(equalTo: sidebarTabs.bottomAnchor, constant: 14),
                 view.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor),
                 view.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor),
                 view.bottomAnchor.constraint(equalTo: sidebar.bottomAnchor)
             ])
         }
         NSLayoutConstraint.activate([
-            sidebarHeading.topAnchor.constraint(equalTo: sidebar.topAnchor,constant: 19),
-            sidebarHeading.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor,constant: 18),
-            sidebarDetail.topAnchor.constraint(equalTo: sidebarHeading.bottomAnchor,constant: 5),
+            sidebarHeading.topAnchor.constraint(equalTo: sidebar.topAnchor,constant: 20),
+            sidebarHeading.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor,constant: 20),
+            sidebarDetail.topAnchor.constraint(equalTo: sidebarHeading.bottomAnchor,constant: 6),
             sidebarDetail.leadingAnchor.constraint(equalTo: sidebarHeading.leadingAnchor),
-            sidebarTabs.topAnchor.constraint(equalTo: sidebarDetail.bottomAnchor, constant: 15),
-            sidebarTabs.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 14),
-            sidebarTabs.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -14),
-            sidebarTabs.heightAnchor.constraint(equalToConstant: 26)
+            sidebarTabs.topAnchor.constraint(equalTo: sidebarDetail.bottomAnchor, constant: 14),
+            sidebarTabs.leadingAnchor.constraint(equalTo: sidebar.leadingAnchor, constant: 16),
+            sidebarTabs.trailingAnchor.constraint(equalTo: sidebar.trailingAnchor, constant: -16),
+            sidebarTabs.heightAnchor.constraint(equalToConstant: 30)
         ])
         sidebarTabChanged()
     }
 
     private func buildToolbar() {
-        let toolbar = NSToolbar(identifier: "ReaderToolbarV2")
+        let toolbar = NSToolbar(identifier: "ReaderToolbarV3")
         toolbar.delegate = self
         toolbar.displayMode = .iconOnly
         toolbar.allowsUserCustomization = true
@@ -263,7 +269,7 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
         toolbarNames.map { .init($0) } + [.flexibleSpace, .space]
     }
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
-        ["sidebar", "page", NSToolbarItem.Identifier.flexibleSpace.rawValue, "zoom", "display", "highlight", "color", "comment", "note", NSToolbarItem.Identifier.flexibleSpace.rawValue, "theme", "search"].map { .init($0) }
+        ["sidebar", "page", NSToolbarItem.Identifier.flexibleSpace.rawValue, "zoom", NSToolbarItem.Identifier.flexibleSpace.rawValue, "highlight", "color", "note", "theme", "search"].map { .init($0) }
     }
     func toolbar(_ toolbar: NSToolbar, itemForItemIdentifier identifier: NSToolbarItem.Identifier,
                  willBeInsertedIntoToolbar flag: Bool) -> NSToolbarItem? {
@@ -286,6 +292,11 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
             item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
             item.target = identifier.rawValue == "open" ? NSDocumentController.shared : self
             item.action = action
+            let button = ReaderToolbarButton()
+            button.image = ReaderStyle.symbol(symbol,size: 14,weight: .medium)
+            button.target = item.target; button.action = action
+            button.toolTip = title; button.setAccessibilityLabel(title)
+            item.view = button
             if identifier.rawValue == "sidebar" { item.visibilityPriority = .high }
             if ["comment","note"].contains(identifier.rawValue) { item.visibilityPriority = .low }
         } else {
@@ -313,13 +324,13 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
                 }
                 let stack = NSStackView(views: [previousButton,pageField,pageCount,nextButton])
                 stack.spacing = 2
-                let capsule = ReaderSurface(fill: ReaderStyle.control,radius: 7,stroke: ReaderStyle.border)
+                let capsule = ReaderSurface(fill: ReaderStyle.control,radius: 8,stroke: ReaderStyle.border.withAlphaComponent(0.7))
                 stack.translatesAutoresizingMaskIntoConstraints = false; capsule.addSubview(stack)
                 NSLayoutConstraint.activate([
                     stack.leadingAnchor.constraint(equalTo: capsule.leadingAnchor,constant: 3),
                     stack.trailingAnchor.constraint(equalTo: capsule.trailingAnchor,constant: -3),
                     stack.centerYAnchor.constraint(equalTo: capsule.centerYAnchor),
-                    capsule.heightAnchor.constraint(equalToConstant: 28)
+                    capsule.heightAnchor.constraint(equalToConstant: 26)
                 ])
                 item.view = capsule
                 item.label = "页码"
@@ -328,7 +339,7 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
                 let zoom = NSSegmentedControl(images: [ReaderStyle.symbol("minus")!,ReaderStyle.symbol("arrow.up.left.and.arrow.down.right")!,ReaderStyle.symbol("plus")!], trackingMode: .momentary,target: self,action: #selector(zoomChanged(_:)))
                 zoom.segmentStyle = .rounded
                 zoom.controlSize = .small
-                for (index,title) in ["缩小","适合页面","放大"].enumerated() { zoom.setToolTip(title,forSegment: index); zoom.setWidth(28,forSegment: index) }
+                for (index,title) in ["缩小","适合页面","放大"].enumerated() { zoom.setToolTip(title,forSegment: index); zoom.setWidth(25,forSegment: index) }
                 zoom.setAccessibilityLabel("缩放")
                 item.view = zoom; item.label = "缩放"
             case "search":
@@ -340,7 +351,7 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
                 searchField.action = #selector(searchNow(_:))
                 let search = NSSearchToolbarItem(itemIdentifier: identifier)
                 search.searchField = searchField
-                search.preferredWidthForSearchField = 180
+                search.preferredWidthForSearchField = 150
                 search.visibilityPriority = .high
                 search.label = "搜索"
                 return search
@@ -352,9 +363,11 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
                 themePopup.target = self
                 themePopup.action = #selector(themeChanged(_:))
                 themePopup.bezelStyle = .texturedRounded
-                (themePopup.cell as? NSPopUpButtonCell)?.arrowPosition = .arrowAtBottom
-                themePopup.font = .systemFont(ofSize: 11,weight: .medium)
-                themePopup.widthAnchor.constraint(equalToConstant: 102).isActive = true
+                themePopup.isBordered = false
+                themePopup.imagePosition = .imageOnly
+                (themePopup.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
+                themePopup.font = .systemFont(ofSize: 12,weight: .medium)
+                themePopup.widthAnchor.constraint(equalToConstant: 28).isActive = true
                 themePopup.toolTip = "深色阅读会同时改变 PDF 页面；保持原色见「显示」菜单"
                 themePopup.setAccessibilityLabel("阅读外观")
                 themePopup.setAccessibilityIdentifier("readingTheme")
@@ -362,20 +375,12 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
                 item.label = "阅读外观"
                 item.visibilityPriority = .high
             case "color":
-                for color in HighlightColor.allCases {
-                    colorPopup.addItem(withTitle: color.title)
-                    colorPopup.lastItem?.image = ReaderStyle.swatch(color.color)
-                }
-                colorPopup.imagePosition = .imageOnly
-                colorPopup.bezelStyle = .texturedRounded
-                (colorPopup.cell as? NSPopUpButtonCell)?.arrowPosition = .arrowAtBottom
-                colorPopup.widthAnchor.constraint(equalToConstant: 40).isActive = true
-                colorPopup.target = self
-                colorPopup.action = #selector(colorChanged(_:))
-                colorPopup.toolTip = "设置高亮颜色；选中已有高亮时会修改它"
-                colorPopup.setAccessibilityLabel("高亮颜色")
-                colorPopup.setAccessibilityIdentifier("highlightColor")
-                item.view = colorPopup
+                colorButton.image = ReaderStyle.colorDot(highlightColor.color)
+                colorButton.target = self; colorButton.action = #selector(showColorPalette(_:))
+                colorButton.toolTip = "高亮颜色：\(highlightColor.title)"
+                colorButton.setAccessibilityLabel("高亮颜色")
+                colorButton.setAccessibilityIdentifier("highlightColor")
+                item.view = colorButton
                 item.label = "高亮颜色"
             case "display":
                 displayPopup.addItems(withTitles: ["连续滚动", "单页阅读"])
@@ -406,16 +411,23 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
     }
 
     func validateToolbarItem(_ item: NSToolbarItem) -> Bool {
+        let enabled: Bool
         switch item.itemIdentifier.rawValue {
-        case "highlight", "comment": return readerDocument.canAnnotate && pdfView.currentSelection != nil
-        case "note", "color": return readerDocument.canAnnotate
-        case "previous": return pdfView.canGoToPreviousPage
-        case "next": return pdfView.canGoToNextPage
-        default: return true
+        case "highlight", "comment": enabled = readerDocument.canAnnotate && pdfView.currentSelection != nil
+        case "note", "color": enabled = readerDocument.canAnnotate
+        case "previous": enabled = pdfView.canGoToPreviousPage
+        case "next": enabled = pdfView.canGoToNextPage
+        default: enabled = true
         }
+        (item.view as? NSControl)?.isEnabled = enabled
+        return enabled
+    }
+    private func validateReadingToolbar() {
+        for item in window?.toolbar?.items ?? [] { item.isEnabled = validateToolbarItem(item) }
     }
 
     @objc private func windowWillClose() {
+        colorPopover.close()
         searchTask?.cancel()
         pdf.cancelFindString()
         pdfView.onAppearanceChanged = nil
@@ -493,7 +505,7 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
             else if let page = pdfView.currentPage, let reason = pdfView.imagePreservingRenderer?.reason(for: pdf.index(for: page)) {
                 parts.append("此页保持原色")
                 status.toolTip = reason
-            } else { parts.append("深色阅读 · 图片保色"); status.toolTip = "阅读主题只影响显示，保存后的页面保持原色。" }
+            } else { parts.append("深色阅读 · 图片与插图保色"); status.toolTip = "阅读主题只影响显示，保存后的页面保持原色。" }
         } else {
             parts.append(pdfView.basicDarkActive ? "整页反色 · 图片也会变色" : "原色阅读")
             status.toolTip = "阅读主题只影响显示，保存后的页面保持原色。"
@@ -501,11 +513,14 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
         status.stringValue = parts.joined(separator: "    ·    ")
         let current = pdfView.currentPage.map { pdf.index(for: $0) + 1 } ?? 0
         readingInfo.stringValue = "\(current) / \(pdf.pageCount) 页    ·    \(Int((pdfView.scaleFactor * 100).rounded()))%"
+        readingProgress.fraction = pdf.pageCount > 0 ? CGFloat(current) / CGFloat(pdf.pageCount) : 0
+        validateReadingToolbar()
         updateSidebarSummary()
     }
 
     private func updateSidebarSummary() {
         let tab = sidebarTabs.selectedSegment
+        sidebarHeading.stringValue = tab == 0 ? "页面概览" : tab == 1 ? "我的批注" : "文档搜索"
         sidebarDetail.stringValue = tab == 0 ? "共 \(pdf.pageCount) 页" : tab == 1 ? "\(notes.count) 条批注" : isSearching ? "正在搜索文档…" : "\(searchResults.count) 个搜索结果"
         let empty = tab == 1 ? notes.isEmpty : tab == 2 && searchResults.isEmpty
         emptyState.isHidden = !empty || tab == 0
@@ -530,7 +545,7 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
         updateStatus()
     }
     @objc private func textSelectionChanged() {
-        window?.toolbar?.validateVisibleItems()
+        validateReadingToolbar()
         guard !(pdfView.currentSelection?.string ?? "").isEmpty else { return }
         // A new text selection is a new editing context. Do not recolor the
         // previously selected annotation when choosing the next highlight color.
@@ -657,7 +672,23 @@ final class ReaderWindowController: NSWindowController, NSToolbarDelegate, NSTab
         selectedAnnotation = marks.first?.1
         selectAnnotation(marks[0].1)
     }
-    private var currentColor: NSColor { (HighlightColor(rawValue: colorPopup.indexOfSelectedItem) ?? .yellow).color }
+    private var currentColor: NSColor { highlightColor.color }
+
+    @objc private func showColorPalette(_ sender: NSButton) {
+        if colorPopover.isShown { colorPopover.close(); return }
+        let palette = ReaderColorPaletteController(selected: highlightColor) { [weak self] color in
+            guard let self else { return }
+            self.highlightColor = color
+            self.colorButton.image = ReaderStyle.colorDot(color.color)
+            self.colorButton.toolTip = "高亮颜色：\(color.title)"
+            self.colorChanged(nil)
+            self.colorPopover.close()
+        }
+        colorPopover.contentViewController = palette
+        colorPopover.behavior = .transient
+        colorPopover.contentSize = NSSize(width: 184,height: 98)
+        colorPopover.show(relativeTo: sender.bounds,of: sender,preferredEdge: .minY)
+    }
 
     // Inverse operations register themselves, so undo and redo preserve standard
     // annotations and NSDocument's saved/modified state.

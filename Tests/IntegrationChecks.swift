@@ -123,15 +123,20 @@ enum IntegrationChecks {
             controller.selectAnnotation(highlight)
             controller.pdfView.setCurrentSelection(selection, animate: false)
             pump(0.1)
-            if let popup = controller.window?.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "color" })?.view as? NSPopUpButton,
-               let action = popup.action {
+            if let colorButton = controller.window?.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "color" })?.view as? NSButton {
+                func choose(_ color: HighlightColor) throws {
+                    colorButton.performClick(nil); pump(0.2)
+                    guard let swatch = NSApp.windows.flatMap({ descendants($0.contentView) }).compactMap({ $0 as? NSButton })
+                        .first(where: { $0.identifier?.rawValue == "highlightColor-\(color.rawValue)" }) else {
+                        throw Failure(description: "Native color palette did not open")
+                    }
+                    swatch.performClick(nil); pump(0.1)
+                }
                 let beforeColor = highlight.color
-                popup.selectItem(at: HighlightColor.blue.rawValue)
-                NSApp.sendAction(action, to: popup.target, from: popup)
+                try choose(.blue)
                 try require(highlight.color == beforeColor, "Choosing a color for new text never recolors a previous annotation")
                 controller.selectAnnotation(highlight)
-                popup.selectItem(at: HighlightColor.pink.rawValue)
-                NSApp.sendAction(action, to: popup.target, from: popup)
+                try choose(.pink)
                 try require(highlight.color == HighlightColor.pink.color, "Explicitly selected annotation can still be recolored")
                 controller.changeColor(highlight, color: HighlightColor.green.color)
             } else { throw Failure(description: "Highlight color toolbar control unavailable") }

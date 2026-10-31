@@ -49,8 +49,13 @@ import PDFKit
             let visible = window.toolbar?.visibleItems?.map { $0.itemIdentifier.rawValue } ?? []
             try IntegrationChecks.require(Set(["sidebar","page","theme","search"]).isSubset(of: Set(visible)),
                                           "Reader \(name): core toolbar controls remain visible")
+            let highlight = window.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "highlight" })?.view as? NSButton
+            try IntegrationChecks.require(highlight?.isEnabled == false, "Reader \(name): highlight button waits for a text selection")
+            let toolbarHeight = window.frame.height - (window.contentView?.frame.height ?? 0)
+            try IntegrationChecks.require(toolbarHeight <= 44, "Reader \(name): title and toolbar occupy at most 44 points")
             cases.append(["name": name, "screen_capture_exit": result,
                           "visible_toolbar": visible,
+                          "title_and_toolbar_height": toolbarHeight,
                           "content_size": [size.width,size.height]])
         }
         window.setContentSize(NSSize(width: 1180,height: 820))
@@ -67,13 +72,40 @@ import PDFKit
         let page = document.pdf!.page(at: 0)!
         let range = (page.string! as NSString).range(of: "First selected line")
         controller.pdfView.setCurrentSelection(page.selection(for: range),animate: false)
-        controller.highlightSelection(nil)
+        let highlight = window.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "highlight" })?.view as? NSButton
+        try IntegrationChecks.require(highlight?.isEnabled == true, "Selected text enables the native highlight button")
+        highlight?.performClick(nil)
+        try IntegrationChecks.require(page.annotations.contains(where: { $0.type == "Highlight" }), "Native toolbar button creates a standard PDF highlight")
         if let mark = page.annotations.first(where: { $0.type == "Highlight" }) {
             controller.changeContents(mark,text: "记录这一段的关键思路。")
             controller.selectAnnotation(mark)
         }
         try await Task.sleep(nanoseconds: 200_000_000)
         _ = try capture("notes")
+        let colorButton = window.toolbar?.items.first(where: { $0.itemIdentifier.rawValue == "color" })?.view as? NSButton
+        colorButton?.performClick(nil)
+        try await Task.sleep(nanoseconds: 200_000_000)
+        func findButton(in view: NSView, identifier: String) -> NSButton? {
+            if let button = view as? NSButton, button.identifier?.rawValue == identifier { return button }
+            return view.subviews.lazy.compactMap { findButton(in: $0,identifier: identifier) }.first
+        }
+        let green = NSApp.windows.compactMap { $0.contentView.flatMap { findButton(in: $0,identifier: "highlightColor-1") } }.first
+        try IntegrationChecks.require(green?.window?.isVisible == true, "Color button opens the native four-color palette")
+        if let paletteWindow = green?.window {
+            _ = try WindowCaptureChecks.capture(paletteWindow,to: output.appendingPathComponent("highlight-palette-window.png"))
+        }
+        let mark = page.annotations.first(where: { $0.type == "Highlight" })!
+        green?.performClick(nil)
+        try await Task.sleep(nanoseconds: 150_000_000)
+        let chosen = mark.color.usingColorSpace(.sRGB)!
+        try IntegrationChecks.require(chosen.greenComponent > 0.85 && chosen.redComponent < 0.5,
+                                      "Palette selection recolors the selected standard PDF highlight")
+        document.undoManager?.undo()
+        try IntegrationChecks.require(mark.color.usingColorSpace(.sRGB)!.redComponent > 0.95,
+                                      "Palette color changes remain undoable")
+        document.undoManager?.redo()
+        try IntegrationChecks.require(mark.color.usingColorSpace(.sRGB)!.greenComponent > 0.85 && mark.color.usingColorSpace(.sRGB)!.redComponent < 0.5,
+                                      "Palette color changes remain redoable")
         document.updateChangeCount(.changeCleared); document.close()
         if let delegate = NSApp.delegate as? AppDelegate {
             _ = delegate.applicationShouldHandleReopen(NSApp,hasVisibleWindows: false)
@@ -87,7 +119,7 @@ import PDFKit
                 }
             }
         }
-        try JSONSerialization.data(withJSONObject: ["cases": cases,"app_build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") ?? "unknown"], options: [.prettyPrinted,.sortedKeys])
+        try JSONSerialization.data(withJSONObject: ["status": "passed","cases": cases,"color_palette_checks": "passed","app_build": Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") ?? "unknown"], options: [.prettyPrinted,.sortedKeys])
             .write(to: output.appendingPathComponent("reader-visual.json"))
     }
 }

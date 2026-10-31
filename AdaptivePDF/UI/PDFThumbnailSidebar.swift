@@ -78,13 +78,15 @@ final class PDFThumbnailSidebar: NSScrollView, NSTableViewDataSource, NSTableVie
         let factor = min(144 / size.width,188 / size.height)
         return NSSize(width: size.width * factor,height: size.height * factor)
     }
-    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat { previewSize(row).height + 40 }
+    func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat { previewSize(row).height + 56 }
     func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? { ReaderSelectionRow() }
 
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let cell = (tableView.makeView(withIdentifier: .init("thumbnail"), owner: self) as? ThumbnailCell) ?? ThumbnailCell()
         cell.identifier = .init("thumbnail")
-        cell.pageLabel.stringValue = pdfView?.document?.page(at: row)?.label ?? "\(row + 1)"
+        let label = pdfView?.document?.page(at: row)?.label ?? "\(row + 1)"
+        cell.pageLabel.stringValue = "第 \(label) 页"
+        cell.setSelected(row == table.selectedRow)
         cell.setPreviewSize(previewSize(row))
         cell.setAccessibilityLabel("第 \(row + 1) 页")
         cell.preview.image = image(forPage: row)
@@ -92,6 +94,9 @@ final class PDFThumbnailSidebar: NSScrollView, NSTableViewDataSource, NSTableVie
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {
+        table.enumerateAvailableRowViews { _, row in
+            (self.table.view(atColumn: 0,row: row,makeIfNecessary: false) as? ThumbnailCell)?.setSelected(row == self.table.selectedRow)
+        }
         guard !selecting, table.selectedRow >= 0,
               let page = pdfView?.document?.page(at: table.selectedRow) else { return }
         pdfView?.go(to: page)
@@ -162,24 +167,36 @@ private final class ThumbnailCell: NSTableCellView {
         preview.imageScaling = .scaleProportionallyDown
         preview.wantsLayer = true
         preview.layer?.shadowColor = NSColor.black.cgColor
-        preview.layer?.shadowOpacity = 0.16
-        preview.layer?.shadowRadius = 4
+        preview.layer?.shadowOpacity = 0.20
+        preview.layer?.shadowRadius = 6
         preview.layer?.shadowOffset = CGSize(width: 0,height: -2)
+        preview.layer?.borderWidth = 0.7
+        preview.layer?.cornerRadius = 2
         pageLabel.alignment = .center
-        pageLabel.font = .monospacedDigitSystemFont(ofSize: 10,weight: .medium)
+        pageLabel.font = .monospacedDigitSystemFont(ofSize: 11,weight: .medium)
         pageLabel.textColor = .secondaryLabelColor
         for view in [preview, pageLabel] { view.translatesAutoresizingMaskIntoConstraints = false; addSubview(view) }
         previewWidth = preview.widthAnchor.constraint(equalToConstant: 144)
         previewHeight = preview.heightAnchor.constraint(equalToConstant: 188)
         NSLayoutConstraint.activate([
             preview.centerXAnchor.constraint(equalTo: centerXAnchor),
-            preview.topAnchor.constraint(equalTo: topAnchor, constant: 10),
+            preview.topAnchor.constraint(equalTo: topAnchor, constant: 14),
             previewWidth, previewHeight,
-            pageLabel.topAnchor.constraint(equalTo: preview.bottomAnchor, constant: 7),
+            pageLabel.topAnchor.constraint(equalTo: preview.bottomAnchor, constant: 11),
             pageLabel.centerXAnchor.constraint(equalTo: centerXAnchor)
         ])
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            preview.layer?.borderColor = ReaderStyle.border.cgColor
+        }
+    }
+    func setSelected(_ selected: Bool) {
+        pageLabel.textColor = selected ? .controlAccentColor : .secondaryLabelColor
+        pageLabel.font = .monospacedDigitSystemFont(ofSize: 11,weight: selected ? .semibold : .regular)
+    }
     func setPreviewSize(_ size: NSSize) {
         previewWidth.constant = size.width; previewHeight.constant = size.height
     }
