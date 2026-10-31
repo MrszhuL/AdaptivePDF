@@ -12,7 +12,10 @@
 namespace {
 using Object = QPDFObjectHandle;
 using Token = QPDFTokenizer::Token;
-struct Colors { std::string fill = "/DeviceGray", stroke = "/DeviceGray"; };
+struct Colors {
+    std::string fill = "/DeviceGray", stroke = "/DeviceGray";
+    double fillAlpha = 1, strokeAlpha = 1;
+};
 
 // Lexical tokens keep strings, comments and binary inline images out of the
 // operator parser. This filter is never attached to the original live PDF.
@@ -23,6 +26,7 @@ class DarkTokens final : public Object::TokenFilter {
     std::vector<Colors> stack;
     std::vector<Token> operands;
     std::string pending;
+    std::string failure, opaqueBackdrop;
     bool inlineImage = false, inlineMaskKey = false, path = false;
     int depth;
     size_t& budget;
@@ -85,14 +89,34 @@ class DarkTokens final : public Object::TokenFilter {
     }
     void backdrop() {
         if (path) throw std::runtime_error("Image inside an unfinished drawing path");
-        write("q 1 1 1 rg 0 0 1 1 re f Q\n");
+        if (colors.fillAlpha == 0) return;
+        std::string reset;
+        if (colors.fillAlpha != 1) {
+            if (opaqueBackdrop.empty()) {
+                auto states = resources.getKey("/ExtGState");
+                states = states.isDictionary() ? states.shallowCopy() : Object::newDictionary();
+                opaqueBackdrop = "/APDFOpaqueImageBackdrop";
+                while (states.hasKey(opaqueBackdrop)) opaqueBackdrop += "x";
+                auto state = Object::newDictionary();
+                state.replaceKey("/ca", Object::newInteger(1));
+                states.replaceKey(opaqueBackdrop, state);
+                resources.replaceKey("/ExtGState", states);
+            }
+            reset = opaqueBackdrop + " gs ";
+        }
+        // Make only the backing opaque. Q restores the image's own alpha, so
+        // translucent images retain their original white-paper appearance.
+        write("q " + reset + "1 1 1 rg 0 0 1 1 re f Q\n");
     }
     void checkGraphicsState(Object state) {
         if (!state.isDictionary()) throw std::runtime_error("Missing graphics state");
         for (auto key : {"/ca", "/CA"}) {
             auto a = state.getKey(key);
-            if (!a.isNull() && (!a.isNumber() || a.getNumericValue() != 1))
-                throw std::runtime_error("Transparent graphics state: retain original page");
+            if (!a.isNull()) {
+                if (!a.isNumber() || !std::isfinite(a.getNumericValue()) || a.getNumericValue() < 0 || a.getNumericValue() > 1)
+                    throw std::runtime_error("Invalid transparency value: retain original page");
+                (std::string(key) == "/ca" ? colors.fillAlpha : colors.strokeAlpha) = a.getNumericValue();
+            }
         }
         for (auto key : {"/SMask", "/BM", "/TR", "/TR2"}) {
             auto value = state.getKey(key);
@@ -124,6 +148,7 @@ class DarkTokens final : public Object::TokenFilter {
             DarkTokens filter(pdf, formResources, colors, depth+1, budget, nested);
             Pl_Buffer buffer("dark form");
             object.filterAsContents(&filter, &buffer);
+            filter.checkSupported();
             auto bytes = buffer.getBufferSharedPointer();
             auto clone = object.copyStream();
             clone.replaceStreamData(std::string((char const*)bytes->getBuffer(), bytes->getSize()), Object::newNull(), Object::newNull());
@@ -146,7 +171,18 @@ class DarkTokens final : public Object::TokenFilter {
         if (objects.isDictionary()) resources.replaceKey("/XObject", objects.shallowCopy());
     }
     Object getResources() { return resources; }
+    void checkSupported() const {
+        if (!failure.empty()) throw std::runtime_error(failure);
+    }
     void handleToken(Token const& token) override {
+        // QPDF treats exceptions from a token callback as damaged stream data.
+        // Defer our intentional unsupported-feature errors until the pipeline
+        // finishes, so one fallback page cannot disable every other page.
+        if (!failure.empty()) return;
+        try { transformToken(token); }
+        catch (std::exception const& error) { failure = error.what(); }
+    }
+    void transformToken(Token const& token) {
         if (++budget > 8000000) throw std::runtime_error("Display transformation exceeds token budget");
         auto type = token.getType();
         if (type == QPDFTokenizer::tt_bad) throw std::runtime_error("Malformed content token");
@@ -211,6 +247,7 @@ NSDictionary *APDFCreateImagePreservingDisplay(NSData *data, NSError **error) {
                 DarkTokens filter(pdf, page.getAttribute("/Resources", false), Colors{}, 0, budget);
                 Pl_Buffer stream("dark page");
                 page.filterContents(&filter, &stream);
+                filter.checkSupported();
                 auto buffer = stream.getBufferSharedPointer();
                 auto box = page.getMediaBox();
                 double x = box.getArrayItem(0).getNumericValue(), y = box.getArrayItem(1).getNumericValue();

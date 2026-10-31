@@ -51,7 +51,7 @@ c.drawImage(ImageReader(rgb), 60, 480, 240, 160)
 c.showPage()
 
 header("Complex transparency retains original page")
-c.saveState(); c.setFillAlpha(0.5)
+c.saveState(); c.setFillAlpha(0.5); c.setBlendMode("Multiply")
 c.drawImage(ImageReader(rgb), 60, 480, 240, 160)
 c.restoreState()
 c.showPage()

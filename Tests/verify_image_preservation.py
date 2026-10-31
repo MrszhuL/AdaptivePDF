@@ -44,7 +44,7 @@ def inline_images(reader):
             if op == b"INLINE IMAGE"]
 
 records = []
-for name in ["Academic", "ImagePreservation"]:
+for name in ["Academic", "ImagePreservation", "AlphaPreservation"]:
     original = PdfReader(root / f"Tests/Fixtures/{name}.pdf")
     display = PdfReader(args.output / f"{name}-image-display.pdf")
     assert images(original) == images(display), "Encoded image or alpha-mask bytes changed"
@@ -74,6 +74,24 @@ for page, regions in rects.items():
 original = Image.open(args.output / "preservation-source-5.png").convert("RGB")
 display = Image.open(args.output / "preservation-display-5.png").convert("RGB")
 assert ImageChops.difference(original, display).getbbox() is None, "Unsupported compositing page did not retain original appearance"
-report = {"status": "passed", "objects": records, "image_pixel_checks": pixel_results, "unsupported_page_original_pixels_exact": True}
+alpha_results = []
+for page in [1, 3]:
+    light = Image.open(args.output / f"alpha-source-{page}.png").convert("RGB")
+    dark = Image.open(args.output / f"alpha-display-{page}.png").convert("RGB")
+    assert max(dark.getpixel((3, 3))) < 64, "Supported opacity page fell back to white"
+    for x,y,w,h in [(60,480,240,160),(320,480,240,160),(60,260,240,160),(320,260,240,160)]:
+        box=(round((x+4)*light.width/612),round((792-y-h+4)*light.height/792),
+             round((x+w-4)*light.width/612),round((792-y-4)*light.height/792))
+        mean=ImageStat.Stat(ImageChops.difference(light.crop(box),dark.crop(box))).mean
+        assert max(mean) <= 0.5, ("opacity",page,mean)
+        alpha_results.append({"page":page,"mean_absolute_channel_difference":mean})
+    hidden=(round(80*dark.width/612),round((792-90)*dark.height/792))
+    assert max(dark.getpixel(hidden)) < 64, "Invisible image created a white backing"
+light = Image.open(args.output / "alpha-source-2.png").convert("RGB")
+dark = Image.open(args.output / "alpha-display-2.png").convert("RGB")
+assert ImageChops.difference(light,dark).getbbox() is None, "Nested complex blend fallback changed appearance"
+report = {"status": "passed", "objects": records, "image_pixel_checks": pixel_results,
+          "opacity_image_pixel_checks": alpha_results, "nested_fallback_isolated": True,
+          "unsupported_page_original_pixels_exact": True}
 (args.output / "image-preservation.json").write_text(json.dumps(report, indent=2) + "\n")
 print(json.dumps(report))
