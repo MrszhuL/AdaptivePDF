@@ -4,13 +4,13 @@
 
 使用 Swift、AppKit、PDFKit、Core Graphics 与 qpdf 构建，文件在本机处理，无需注册账号。
 
-**当前版本：1.0.0 预览版（build 13）。** 安装包采用本地 ad-hoc 签名，尚未完成 Developer ID 签名和 Apple 公证。
+**当前版本：1.0.0 预览版（build 14）。** 安装包采用本地 ad-hoc 签名，尚未完成 Developer ID 签名和 Apple 公证。
 
 ## 下载
 
-- [下载 macOS 安装包（DMG）](https://github.com/MrszhuL/AdaptivePDF/releases/download/v1.0.0-build13/AdaptivePDF.dmg)
-- [下载应用压缩包（ZIP）](https://github.com/MrszhuL/AdaptivePDF/releases/download/v1.0.0-build13/AdaptivePDF-macOS.zip)
-- [版本说明、源码与 SHA256 校验文件](https://github.com/MrszhuL/AdaptivePDF/releases/tag/v1.0.0-build13)
+- [下载 macOS 安装包（DMG）](https://github.com/MrszhuL/AdaptivePDF/releases/download/v1.0.0-build14/AdaptivePDF.dmg)
+- [下载应用压缩包（ZIP）](https://github.com/MrszhuL/AdaptivePDF/releases/download/v1.0.0-build14/AdaptivePDF-macOS.zip)
+- [版本说明、源码与 SHA256 校验文件](https://github.com/MrszhuL/AdaptivePDF/releases/tag/v1.0.0-build14)
 
 两个安装包包含相同的 Universal 应用。普通使用者下载 DMG 即可，无需安装 Xcode、Python 或 qpdf。
 
@@ -26,7 +26,7 @@
 ## 主要功能
 
 - **紧凑原生界面**：单行工具栏、图标式主题入口和圆点颜色面板；柔和侧栏、清晰页码、批注卡片与阅读进度细线。窄窗口保留翻页、主题和搜索入口。
-- **原生阅读**：本地 PDF、多窗口、连续滚动或单页、缩放、适合页面/宽度、页码跳转、文字选择与复制。
+- **原生阅读**：本地 PDF、多窗口、连续滚动仅留细缝或单页阅读、缩放、适合页面/宽度、页码跳转、文字选择与复制。
 - **图片与插图保色深色阅读**：跟随系统、浅色和深色三种主题；保留嵌入图片和独立封装插图的原色，包括图内文字、箭头、灰度矩阵和底色。
 - **主题同步缩略图**：侧栏页面预览跟随正文变暗，图片继续保色；支持点击跳页、当前页同步及批注刷新。
 - **全文搜索**：异步搜索、结果列表与定位，支持前后切换匹配项。

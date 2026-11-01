@@ -34,7 +34,8 @@ final class ReaderPDFView: PDFView {
         displayMode = .singlePageContinuous
         displayDirection = .vertical
         displaysPageBreaks = true
-        pageBreakMargins = NSEdgeInsets(top: 20,left: 24,bottom: 20,right: 24)
+        pageBreakMargins = NSEdgeInsets(top: 0.5,left: 24,bottom: 0.5,right: 24)
+        pageShadowsEnabled = false
         minScaleFactor = 0.10
         maxScaleFactor = 8
         registerForDraggedTypes([.fileURL])
@@ -52,7 +53,7 @@ final class ReaderPDFView: PDFView {
         renderingLock.lock(); preserveImages = preserving; renderingLock.unlock()
         (document as? ImagePreservingPDFDocument)?.imagePreservingDark = preserving
         basicDarkActive = active
-        pageShadowsEnabled = !(active || preserving)
+        pageShadowsEnabled = false
         // A compositor filter changes neither PDF objects nor the geometry of
         // selections / hit targets, and needs no full-page bitmap cache.
         layer?.filters = active ? AppearancePreferences.basicDarkFilter().map { [$0] } : nil
