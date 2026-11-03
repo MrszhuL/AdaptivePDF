@@ -155,6 +155,32 @@ import PDFKit
                                       "Complete vector figure labels, paths and fills retain original thumbnail colors")
         try write(vectorLight, "thumbnail-vector-light.png")
         try write(vectorDark, "thumbnail-vector-dark.png")
+        AppearancePreferences.selectReadingTheme(.light)
+        try document.read(from: root.appendingPathComponent("Tests/Fixtures/ColorSpacePreservation.pdf"), ofType: "com.adobe.pdf")
+        var colorLight: [NSBitmapImageRep] = []
+        for index in 0..<9 { colorLight.append(try await image(index)) }
+        AppearancePreferences.selectReadingTheme(.dark)
+        let colorDeadline = Date().addingTimeInterval(20)
+        while controller.pdfView.imagePreservingRenderer?.isPreparing == true && Date() < colorDeadline {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        try await Task.sleep(nanoseconds: 100_000_000)
+        for index in 0..<9 {
+            let light = colorLight[index], dark = try await image(index)
+            try IntegrationChecks.require(paper(dark) < 0.25,
+                "Special color-space page \(index+1) also has a dark native thumbnail")
+            let sx = CGFloat(light.pixelsWide)/612, sy = CGFloat(light.pixelsHigh)/792
+            var difference: CGFloat = 0
+            let xs = Int(ceil(64*sx))..<Int(floor(536*sx))
+            let ys = Int(ceil(256*sy))..<Int(floor(448*sy))
+            for y in ys { for x in xs {
+                let a = light.colorAt(x: x, y: y)!.usingColorSpace(.sRGB)!
+                let b = dark.colorAt(x: x, y: y)!.usingColorSpace(.sRGB)!
+                difference += abs(a.redComponent-b.redComponent) + abs(a.greenComponent-b.greenComponent) + abs(a.blueComponent-b.blueComponent)
+            } }
+            try IntegrationChecks.require(difference*255/CGFloat(xs.count*ys.count*3) < 0.5,
+                "Special color-space page \(index+1) keeps its complete figure in the thumbnail")
+        }
         let encrypted = PDFReaderDocument()
         try encrypted.read(from: root.appendingPathComponent("Tests/Fixtures/Encrypted.pdf"), ofType: "com.adobe.pdf")
         let unlocked = encrypted.pdf!.unlock(withPassword: "reader")

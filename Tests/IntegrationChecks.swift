@@ -32,6 +32,10 @@ enum IntegrationChecks {
         }
         do {
             try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
+            if let source = ProcessInfo.processInfo.environment["ADAPTIVEPDF_DISPLAY_PROBE"] {
+                try ImagePreservationChecks.probe(source: URL(fileURLWithPath: source), output: output)
+                exit(0)
+            }
             if ProcessInfo.processInfo.environment["ADAPTIVEPDF_VISUAL_ONLY"] == "1" {
                 try await ReaderVisualChecks.run(root: root, output: output)
                 print("READER VISUAL CAPTURES COMPLETE")

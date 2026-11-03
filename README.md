@@ -4,13 +4,13 @@
 
 使用 Swift、AppKit、PDFKit、Core Graphics 与 qpdf 构建，文件在本机处理，无需注册账号。
 
-**当前版本：1.0.0 预览版（build 14）。** 安装包采用本地 ad-hoc 签名，尚未完成 Developer ID 签名和 Apple 公证。
+**当前版本：1.0.0 预览版（build 15）。** 安装包采用本地 ad-hoc 签名，尚未完成 Developer ID 签名和 Apple 公证。
 
 ## 下载
 
-- [下载 macOS 安装包（DMG）](https://github.com/MrszhuL/AdaptivePDF/releases/download/v1.0.0-build14/AdaptivePDF.dmg)
-- [下载应用压缩包（ZIP）](https://github.com/MrszhuL/AdaptivePDF/releases/download/v1.0.0-build14/AdaptivePDF-macOS.zip)
-- [版本说明、源码与 SHA256 校验文件](https://github.com/MrszhuL/AdaptivePDF/releases/tag/v1.0.0-build14)
+- [下载 macOS 安装包（DMG）](https://github.com/MrszhuL/AdaptivePDF/releases/download/v1.0.0-build15/AdaptivePDF.dmg)
+- [下载应用压缩包（ZIP）](https://github.com/MrszhuL/AdaptivePDF/releases/download/v1.0.0-build15/AdaptivePDF-macOS.zip)
+- [版本说明、源码与 SHA256 校验文件](https://github.com/MrszhuL/AdaptivePDF/releases/tag/v1.0.0-build15)
 
 两个安装包包含相同的 Universal 应用。普通使用者下载 DMG 即可，无需安装 Xcode、Python 或 qpdf。
 
@@ -53,6 +53,8 @@
 ![完整矢量插图保色对照](docs/images/vector-preserving-comparison.png)
 
 图片和插图原有的白底会保留，因此整页扫描图片仍可能呈现白底。当前以 PDF 的 Form 图形边界保护独立插图；与正文直接混排、没有独立封装的矢量绘制仍可能随正文变色，不能保证任意 PDF 的图表均已识别。未支持的复杂绘制会让对应页面保留原色，状态栏给出提示。
+
+build 15 补齐印刷 PDF 常用的 Separation、DeviceN、Indexed 与 Lab 实体颜色解析，避免专色正文触发整页白底。新增九页独立样本，覆盖专色函数、连续颜色状态、图片、完整插图与缩略图；仍按上述范围处理复杂绘制和整页扫描图。
 
 「显示」菜单还提供 **Original**（整页保持原色）和 **Basic Dark 整页反色**。Basic Dark 会改变图片颜色，需要显式选择。选择工具栏的「深色阅读」会启用默认的图片保色模式。
 

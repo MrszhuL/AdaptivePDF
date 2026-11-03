@@ -44,7 +44,7 @@ def inline_images(reader):
             if op == b"INLINE IMAGE"]
 
 records = []
-for name in ["Academic", "ImagePreservation", "AlphaPreservation", "VectorPreservation"]:
+for name in ["Academic", "ImagePreservation", "AlphaPreservation", "VectorPreservation", "ColorSpacePreservation"]:
     original = PdfReader(root / f"Tests/Fixtures/{name}.pdf")
     display = PdfReader(args.output / f"{name}-image-display.pdf")
     assert images(original) == images(display), "Encoded image or alpha-mask bytes changed"
@@ -117,9 +117,35 @@ for page, regions in {1: [(60,440,480,220)], 2: [(60,440,480,220)],
     if page == 4:
         point = (round(65*dark.width/612),round((792-145)*dark.height/792))
         assert max(dark.getpixel(point)) < 64, "Figure backing escaped its clipping path"
+color_results = []
+for page in range(1, 10):
+    light = Image.open(args.output / f"color-source-{page}.png").convert("RGB")
+    dark = Image.open(args.output / f"color-display-{page}.png").convert("RGB")
+    def point(x, y): return (round(x*dark.width/612), round((792-y)*dark.height/792))
+    def crop(x,y,w,h):
+        return (round(x*dark.width/612)+2,round((792-y-h)*dark.height/792)+2,
+                round((x+w)*dark.width/612)-2,round((792-y)*dark.height/792)-2)
+    assert max(dark.getpixel((3,3))) < 64, ("Color space triggered a white-page fallback", page)
+    if page != 8:
+        assert min(dark.getpixel(point(100,665))) > 170, ("Named black fill did not lighten",page)
+        assert max(dark.getpixel(point(250,665))) < 64, ("Named white fill did not darken",page)
+        assert min(dark.getpixel(point(100,580))) > 170, ("Named stroke did not lighten",page)
+        assert min(dark.getpixel(point(360,557))) > 170, ("q/Q lost the source color space",page)
+    else:
+        assert max(dark.getpixel(point(100,665))) < 64, "None ink became visible"
+    for region in [(60,340,480,200),(60,160,180,120)] + ([(430,650,120,30)] if page in [4,7] else []):
+        diff = ImageChops.difference(light.crop(crop(*region)), dark.crop(crop(*region)))
+        maximum = max(channel[1] for channel in diff.getextrema())
+        assert maximum == 0, ("Special color, complete figure or raster changed",page,region,maximum)
+    if page != 8:
+        a,b = light.crop(crop(40,600,280,25)), dark.crop(crop(40,600,280,25))
+        pairs = [(p,q) for p,q in zip(a.get_flattened_data(),b.get_flattened_data()) if max(p)<40]
+        assert pairs and sum(min(q)>170 for _,q in pairs)/len(pairs)>0.85, ("Named body text stayed black",page)
+    color_results.append({"page":page,"dark_paper":True,"fill_stroke_and_state_checked":True,
+                          "complete_figure_and_raster_pixels_exact":True})
 report = {"status": "passed", "objects": records, "image_pixel_checks": pixel_results,
           "opacity_image_pixel_checks": alpha_results, "nested_fallback_isolated": True,
-          "complete_vector_figure_checks": vector_results,
+          "complete_vector_figure_checks": vector_results, "solid_color_space_checks": color_results,
           "unsupported_page_original_pixels_exact": True}
 (args.output / "image-preservation.json").write_text(json.dumps(report, indent=2) + "\n")
 print(json.dumps(report))

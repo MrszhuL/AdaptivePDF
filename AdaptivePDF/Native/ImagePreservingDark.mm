@@ -1,4 +1,5 @@
 #import "QPDFBridge.h"
+#import <CoreGraphics/CoreGraphics.h>
 #include <qpdf/QPDF.hh>
 #include <qpdf/QPDFPageDocumentHelper.hh>
 #include <qpdf/QPDFWriter.hh>
@@ -9,10 +10,81 @@
 #include <sstream>
 #include <stdexcept>
 #include <set>
+#include <map>
+#include <array>
 
 namespace {
 using Object = QPDFObjectHandle;
 using Token = QPDFTokenizer::Token;
+// Keep source color-space identity separate from the emitted display color.
+// A mapped gray switches the output to DeviceGray; the next SC/SCN still takes
+// its operands in the source space (including spot, indexed and ICC spaces).
+struct DrawingColorSpace {
+    std::string selection = "/DeviceGray";
+    Object definition = Object::newName("/DeviceGray");
+    std::vector<double> initial = {0};
+};
+
+class DisplayColorConverter {
+    QPDF& source;
+    std::map<std::string, std::array<double, 3>> cache;
+  public:
+    explicit DisplayColorConverter(QPDF& source) : source(source) {}
+    std::array<double, 3> rgb(DrawingColorSpace space, std::vector<double> const& values) {
+        auto definition = space.definition;
+        auto name = definition.isName() ? definition.getName() : "";
+        auto unit = [](double value) { return std::clamp(value, 0.0, 1.0); };
+        if (name == "/DeviceGray" && values.size() == 1) return {unit(values[0]), unit(values[0]), unit(values[0])};
+        if (name == "/DeviceRGB" && values.size() == 3) return {unit(values[0]), unit(values[1]), unit(values[2])};
+        if (name == "/DeviceCMYK" && values.size() == 4)
+            return {(1-unit(values[0]))*(1-unit(values[3])), (1-unit(values[1]))*(1-unit(values[3])), (1-unit(values[2]))*(1-unit(values[3]))};
+        std::ostringstream operands;
+        operands << std::setprecision(17);
+        for (double value : values) operands << value << " ";
+        auto key = definition.unparse() + ":" + operands.str();
+        if (auto found = cache.find(key); found != cache.end()) return found->second;
+        if (cache.size() >= 4096) throw std::runtime_error("Display color conversion exceeds color budget");
+
+        // Let the same macOS PDF engine that draws the source resolve its solid
+        // colors. This covers sampled/exponential/stitching/calculator tint
+        // functions, DeviceN, Indexed, Lab and embedded ICC profiles without
+        // approximating a tint as gray or changing an image's color resources.
+        QPDF probe;
+        probe.emptyPDF();
+        if (!definition.isIndirect()) definition = source.makeIndirectObject(definition);
+        auto imported = probe.copyForeignObject(definition);
+        auto spaces = Object::newDictionary(); spaces.replaceKey("/Sample", imported);
+        auto resources = Object::newDictionary(); resources.replaceKey("/ColorSpace", spaces);
+        auto page = Object::newDictionary();
+        page.replaceKey("/Type", Object::newName("/Page"));
+        page.replaceKey("/MediaBox", Object::parse("[0 0 2 2]"));
+        page.replaceKey("/Resources", resources);
+        page.replaceKey("/Contents", Object::newStream(&probe, "/Sample cs " + operands.str() + "scn 0 0 2 2 re f\n"));
+        QPDFPageDocumentHelper(probe).addPage(QPDFPageObjectHelper(probe.makeIndirectObject(page)), false);
+        QPDFWriter writer(probe); writer.setOutputMemory(); writer.write();
+        auto data = writer.getBufferSharedPointer();
+        auto provider = CGDataProviderCreateWithData(nullptr, data->getBuffer(), data->getSize(), nullptr);
+        auto document = provider ? CGPDFDocumentCreateWithProvider(provider) : nullptr;
+        if (provider) CGDataProviderRelease(provider);
+        auto cgPage = document ? CGPDFDocumentGetPage(document, 1) : nullptr;
+        uint8_t pixels[16] = {};
+        auto colorSpace = CGColorSpaceCreateWithName(kCGColorSpaceSRGB);
+        auto context = CGBitmapContextCreate(pixels, 2, 2, 8, 8, colorSpace,
+            kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+        CGColorSpaceRelease(colorSpace);
+        if (!cgPage || !context) {
+            if (context) CGContextRelease(context);
+            if (document) CGPDFDocumentRelease(document);
+            throw std::runtime_error("Cannot resolve PDF display color");
+        }
+        CGContextSetGrayFillColor(context, 1, 1); CGContextFillRect(context, CGRectMake(0, 0, 2, 2));
+        CGContextDrawPDFPage(context, cgPage);
+        CGContextRelease(context); CGPDFDocumentRelease(document);
+        std::array<double, 3> result = {pixels[0]/255.0, pixels[1]/255.0, pixels[2]/255.0};
+        cache.emplace(key, result);
+        return result;
+    }
+};
 struct Matrix {
     double a = 1, b = 0, c = 0, d = 1, e = 0, f = 0;
     Matrix then(Matrix const& m) const {
@@ -55,7 +127,7 @@ struct Rectangle {
     }
 };
 struct DrawingState {
-    std::string fill = "/DeviceGray", stroke = "/DeviceGray";
+    DrawingColorSpace fill, stroke;
     std::string originalFill = "0 g\n", originalStroke = "0 G\n";
     double fillAlpha = 1, strokeAlpha = 1;
     Matrix transform;
@@ -65,6 +137,7 @@ struct DrawingState {
 // operator parser. This filter is never attached to the original live PDF.
 class DarkTokens final : public Object::TokenFilter {
     QPDF& pdf;
+    DisplayColorConverter& converter;
     Object resources;
     DrawingState colors;
     Rectangle pageBounds;
@@ -76,61 +149,91 @@ class DarkTokens final : public Object::TokenFilter {
     int depth;
     size_t& budget;
     std::set<QPDFObjGen> ancestors;
-    std::string colorSpace(std::string name) {
-        if (name == "/DeviceGray" || name == "/DeviceRGB" || name == "/DeviceCMYK") return name;
+    DrawingColorSpace colorSpace(std::string name) {
+        DrawingColorSpace result;
+        result.selection = Object::newName(name).unparse();
+        auto value = Object::newName(name);
         auto dictionary = resources.getKey("/ColorSpace");
-        if (!dictionary.isDictionary()) throw std::runtime_error("Missing drawing color space");
-        auto value = dictionary.getKey(name);
+        for (int depth = 0; value.isName() && depth < 8; ++depth) {
+            auto kind = value.getName();
+            if (kind == "/DeviceGray" || kind == "/DeviceRGB" || kind == "/DeviceCMYK") break;
+            if (!dictionary.isDictionary() || !dictionary.hasKey(kind)) throw std::runtime_error("Missing drawing color space");
+            value = dictionary.getKey(kind);
+        }
+        result.definition = value;
+        int components = 0;
+        bool subtractive = false;
         if (value.isName()) {
             name = value.getName();
-            if (name == "/DeviceGray" || name == "/DeviceRGB" || name == "/DeviceCMYK") return name;
+            if (name == "/DeviceGray") components = 1;
+            if (name == "/DeviceRGB") components = 3;
+            if (name == "/DeviceCMYK") components = 4;
         } else if (value.isArray() && value.getArrayNItems() >= 2) {
             auto kind = value.getArrayItem(0);
-            if (kind.isNameAndEquals("/CalGray")) return "/DeviceGray";
-            if (kind.isNameAndEquals("/CalRGB")) return "/DeviceRGB";
+            if (kind.isNameAndEquals("/CalGray")) components = 1;
+            if (kind.isNameAndEquals("/CalRGB") || kind.isNameAndEquals("/Lab")) components = 3;
+            if (kind.isNameAndEquals("/Indexed")) components = 1;
+            if (kind.isNameAndEquals("/Separation") && value.getArrayNItems() == 4) { components = 1; subtractive = true; }
+            if (kind.isNameAndEquals("/DeviceN") && value.getArrayNItems() >= 4) {
+                auto names = value.getArrayItem(1);
+                if (names.isArray()) components = names.getArrayNItems();
+                subtractive = true;
+            }
             if (kind.isNameAndEquals("/ICCBased")) {
                 auto profile = value.getArrayItem(1);
                 if (profile.isStream()) {
                     auto count = profile.getDict().getKey("/N");
                     if (count.isInteger()) {
-                        if (count.getIntValue() == 1) return "/DeviceGray";
-                        if (count.getIntValue() == 3) return "/DeviceRGB";
-                        if (count.getIntValue() == 4) return "/DeviceCMYK";
+                        if (count.getIntValue() == 1 || count.getIntValue() == 3 || count.getIntValue() == 4)
+                            components = int(count.getIntValue());
                     }
                 }
             }
         }
-        throw std::runtime_error("Special drawing color space: retain original page");
+        if (components <= 0 || components > 32) throw std::runtime_error("Unsupported drawing color space: retain original page");
+        result.initial.assign(components, subtractive ? 1 : 0);
+        if (components == 4 && !subtractive) result.initial[3] = 1;
+        return result;
     }
     std::string neutral(std::string const& op) {
         std::vector<double> values;
         for (auto const& t : operands) {
             if (t.getType() != QPDFTokenizer::tt_integer && t.getType() != QPDFTokenizer::tt_real) return "";
             double x = std::stod(t.getValue());
-            if (!std::isfinite(x) || x < 0 || x > 1) return "";
+            if (!std::isfinite(x)) throw std::runtime_error("Invalid color component");
             values.push_back(x);
         }
         bool stroke = op == "G" || op == "RG" || op == "K" || op == "SC" || op == "SCN";
-        (stroke ? colors.originalStroke : colors.originalFill) = pending + " " + op + "\n";
-        std::string space = stroke ? colors.stroke : colors.fill;
-        if (op == "g" || op == "G") space = "/DeviceGray";
-        if (op == "rg" || op == "RG") space = "/DeviceRGB";
-        if (op == "k" || op == "K") space = "/DeviceCMYK";
+        auto space = stroke ? colors.stroke : colors.fill;
+        if (op == "g" || op == "G") space = colorSpace("/DeviceGray");
+        if (op == "rg" || op == "RG") space = colorSpace("/DeviceRGB");
+        if (op == "k" || op == "K") space = colorSpace("/DeviceCMYK");
         (stroke ? colors.stroke : colors.fill) = space;
-        double r, g, b;
-        if (space == "/DeviceGray" && values.size() == 1) r = g = b = values[0];
-        else if (space == "/DeviceRGB" && values.size() == 3) { r = values[0]; g = values[1]; b = values[2]; }
-        else if (space == "/DeviceCMYK" && values.size() == 4) {
-            r = (1-values[0])*(1-values[3]); g = (1-values[1])*(1-values[3]); b = (1-values[2])*(1-values[3]);
-        } else throw std::runtime_error("Unsupported drawing color space");
-        if (std::max({r,g,b}) - std::min({r,g,b}) > 0.025) return "";
-        double value = 0.90 - (0.90 - 36.0/255.0) * (r+g+b)/3;
-        // Keep the original color space active for subsequent SC/SCN operators.
-        std::ostringstream out;
+        if (values.size() != space.initial.size()) throw std::runtime_error("Invalid color component count");
         bool generic = op == "sc" || op == "SC" || op == "scn" || op == "SCN";
-        if (space == "/DeviceGray") out << value << " " << (generic ? op : stroke ? "G" : "g") << "\n";
-        else if (space == "/DeviceRGB") out << value << " " << value << " " << value << " " << (generic ? op : stroke ? "RG" : "rg") << "\n";
-        else out << "0 0 0 " << 1-value << " " << (generic ? op : stroke ? "K" : "k") << "\n";
+        auto original = (generic ? space.selection + (stroke ? " CS\n" : " cs\n") : "") + pending + " " + op + "\n";
+        (stroke ? colors.originalStroke : colors.originalFill) = original;
+        return mappedColor(space, values, original, stroke);
+    }
+    std::string mappedColor(DrawingColorSpace space, std::vector<double> const& values,
+                            std::string const& original, bool stroke) {
+        // /None deliberately paints nothing; replacing it with gray would make
+        // invisible printer marks visible. Preserve all-None DeviceN as well.
+        auto definition = space.definition;
+        if (definition.isArray()) {
+            auto kind = definition.getArrayItem(0), names = definition.getArrayItem(1);
+            if (kind.isNameAndEquals("/Separation") && names.isNameAndEquals("/None")) return original;
+            if (kind.isNameAndEquals("/DeviceN") && names.isArray()) {
+                bool allNone = true;
+                for (int i = 0; i < names.getArrayNItems(); ++i) allNone &= names.getArrayItem(i).isNameAndEquals("/None");
+                if (allNone) return original;
+            }
+        }
+        auto [r, g, b] = converter.rgb(space, values);
+        if (std::max({r,g,b}) - std::min({r,g,b}) > 0.025) return original;
+        double value = 0.90 - (0.90 - 36.0/255.0) * (r+g+b)/3;
+        std::ostringstream out;
+        out << value << (stroke ? " G\n" : " g\n");
         return out.str();
     }
     void backdrop(Rectangle rect = {}, Matrix matrix = {}) {
@@ -211,7 +314,7 @@ class DarkTokens final : public Object::TokenFilter {
             if (formResources.isNull()) formResources = resources;
             auto initial = colors;
             initial.transform = transform;
-            DarkTokens filter(pdf, formResources, initial, depth+1, budget, pageBounds, nested);
+            DarkTokens filter(pdf, converter, formResources, initial, depth+1, budget, pageBounds, nested);
             Pl_Buffer buffer("dark form");
             object.filterAsContents(&filter, &buffer);
             filter.checkSupported();
@@ -230,8 +333,8 @@ class DarkTokens final : public Object::TokenFilter {
         return "";
     }
   public:
-    DarkTokens(QPDF& pdf, Object resource, DrawingState initial, int depth, size_t& budget, Rectangle pageBounds,
-               std::set<QPDFObjGen> ancestors = {}) : pdf(pdf), colors(initial), pageBounds(pageBounds), depth(depth), budget(budget), ancestors(ancestors) {
+    DarkTokens(QPDF& pdf, DisplayColorConverter& converter, Object resource, DrawingState initial, int depth, size_t& budget, Rectangle pageBounds,
+               std::set<QPDFObjGen> ancestors = {}) : pdf(pdf), converter(converter), colors(initial), pageBounds(pageBounds), depth(depth), budget(budget), ancestors(ancestors) {
         resources = resource.isDictionary() ? resource.shallowCopy() : Object::newDictionary();
         auto objects = resources.getKey("/XObject");
         if (objects.isDictionary()) resources.replaceKey("/XObject", objects.shallowCopy());
@@ -269,13 +372,14 @@ class DarkTokens final : public Object::TokenFilter {
                 op == "sc" || op == "SC" || op == "scn" || op == "SCN") replacement = neutral(op);
             else if (op == "cs" || op == "CS") {
                 if (operands.size() != 1) throw std::runtime_error("Invalid color space operator");
-                std::string name = colorSpace(operands[0].getValue());
-                (op == "cs" ? colors.fill : colors.stroke) = name;
-                // Changing a color space resets its initial color to black.
-                std::string value = name == "/DeviceGray" ? "0.9" : name == "/DeviceRGB" ? "0.9 0.9 0.9" : "0 0 0 0.1";
-                std::string original = name == "/DeviceGray" ? "0" : name == "/DeviceRGB" ? "0 0 0" : "0 0 0 1";
-                (op == "cs" ? colors.originalFill : colors.originalStroke) = pending + " " + op + "\n" + original + (op == "cs" ? " sc\n" : " SC\n");
-                replacement = pending + " " + op + "\n" + value + (op == "cs" ? " sc\n" : " SC\n");
+                auto space = colorSpace(operands[0].getValue());
+                bool stroke = op == "CS";
+                (stroke ? colors.stroke : colors.fill) = space;
+                std::ostringstream initial;
+                for (double value : space.initial) initial << value << " ";
+                auto original = space.selection + " " + op + "\n" + initial.str() + (stroke ? "SCN\n" : "scn\n");
+                (stroke ? colors.originalStroke : colors.originalFill) = original;
+                replacement = mappedColor(space, space.initial, original, stroke);
             } else if (op == "cm") {
                 if (operands.size() != 6) throw std::runtime_error("Invalid transformation operator");
                 double v[6];
@@ -319,12 +423,13 @@ NSDictionary *APDFCreateImagePreservingDisplay(NSData *data, NSError **error) {
         auto pages = QPDFPageDocumentHelper(pdf).getAllPages();
         NSMutableArray *supported = [NSMutableArray array], *reasons = [NSMutableArray array];
         size_t budget = 0;
+        DisplayColorConverter converter(pdf);
         for (auto& page : pages) {
             bool success = false;
             NSString *reason = @"";
             try {
                 auto box = page.getMediaBox();
-                DarkTokens filter(pdf, page.getAttribute("/Resources", false), DrawingState{}, 0, budget, Rectangle::read(box));
+                DarkTokens filter(pdf, converter, page.getAttribute("/Resources", false), DrawingState{}, 0, budget, Rectangle::read(box));
                 Pl_Buffer stream("dark page");
                 page.filterContents(&filter, &stream);
                 filter.checkSupported();

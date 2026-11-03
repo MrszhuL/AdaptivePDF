@@ -63,8 +63,11 @@ for variant in ["debug", "optimized"]:
     assert len(figures["image_pixel_checks"]) == 9 and len(figures["opacity_image_pixel_checks"]) == 8
     assert len(figures["complete_vector_figure_checks"]) == 5
     assert all(case["maximum_channel_difference"] == 0 for case in figures["complete_vector_figure_checks"])
+    assert len(figures["solid_color_space_checks"]) == 9
+    assert all(case["dark_paper"] and case["fill_stroke_and_state_checked"] and
+               case["complete_figure_and_raster_pixels_exact"] for case in figures["solid_color_space_checks"])
     figure_checks[variant] = {"raster_regions": 17, "complete_vector_figures": 5,
-                              "complete_figure_pixels_exact": True}
+                              "complete_figure_pixels_exact": True, "solid_color_space_pages": 9}
     visual = json.loads((out / f"verification/{variant}-visual.json").read_text())
     assert visual["status"] == visual["color_palette_checks"] == "passed"
     assert visual["app_build"] == info["CFBundleVersion"]

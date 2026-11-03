@@ -3,8 +3,33 @@ import AppKit
 import PDFKit
 
 @MainActor enum ImagePreservationChecks {
+    /// Explicit local diagnostics only; never part of automatic corpus fetching
+    /// or release packaging. The input stays read-only and outside the repo.
+    static func probe(source: URL, output: URL) throws {
+        let data = try Data(contentsOf: source)
+        var error: NSError?
+        let start = Date()
+        guard let result = APDFCreateImagePreservingDisplay(data, &error), let bytes = result["data"] as? Data else {
+            throw IntegrationChecks.Failure(description: "Display probe failed: \(String(describing: error))")
+        }
+        let original = PDFDocument(data: data)!, display = PDFDocument(data: bytes)!
+        for index in 0..<original.pageCount {
+            for (name, pdf) in [("source", original), ("display", display)] {
+                let image = pdf.page(at: index)!.thumbnail(of: NSSize(width: 1188, height: 1584), for: .cropBox)
+                let bitmap = NSBitmapImageRep(data: image.tiffRepresentation!)!
+                try bitmap.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent("\(name)-\(index+1).png"))
+            }
+        }
+        try bytes.write(to: output.appendingPathComponent("display.pdf"))
+        let report: [String: Any] = ["supported": result["supported"]!, "reasons": result["reasons"]!,
+            "text_unchanged": original.string == display.string,
+            "source_unchanged": data == (try Data(contentsOf: source)), "elapsed_seconds": Date().timeIntervalSince(start)]
+        try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: output.appendingPathComponent("display-probe.json"))
+        print("DISPLAY_PROBE \(report)")
+    }
+
     static func run(root: URL, output: URL, capture: Bool = false) throws {
-        for name in ["Academic", "ImagePreservation", "AlphaPreservation", "VectorPreservation"] {
+        for name in ["Academic", "ImagePreservation", "AlphaPreservation", "VectorPreservation", "ColorSpacePreservation"] {
             let source = root.appendingPathComponent("Tests/Fixtures/\(name).pdf")
             let data = try Data(contentsOf: source)
             var error: NSError?
@@ -17,6 +42,7 @@ import PDFKit
             case "Academic": expected = [true, true, true]
             case "AlphaPreservation": expected = [true, false, true]
             case "VectorPreservation": expected = [true, true, true, true]
+            case "ColorSpacePreservation": expected = Array(repeating: true, count: 9)
             default: expected = [true, true, true, true, false]
             }
             print("IMAGE_SUPPORT \(name): \(supported) \(result["reasons"] ?? "")")
@@ -32,7 +58,7 @@ import PDFKit
                     for (label, page) in [("source", a), ("display", b)] {
                         let image = page.thumbnail(of: NSSize(width: 1224, height: 1584), for: .cropBox)
                         let bitmap = NSBitmapImageRep(data: image.tiffRepresentation!)!
-                        let prefix = name == "VectorPreservation" ? "vector" : name == "AlphaPreservation" ? "alpha" : "preservation"
+                        let prefix = name == "ColorSpacePreservation" ? "color" : name == "VectorPreservation" ? "vector" : name == "AlphaPreservation" ? "alpha" : "preservation"
                         try bitmap.representation(using: .png, properties: [:])!.write(to: output.appendingPathComponent("\(prefix)-\(label)-\(index+1).png"))
                     }
                 }
