@@ -22,7 +22,7 @@ import PDFKit
         }
         try bytes.write(to: output.appendingPathComponent("display.pdf"))
         let report: [String: Any] = ["supported": result["supported"]!, "reasons": result["reasons"]!,
-            "text_unchanged": original.string == display.string,
+            "display_copy_text_unchanged": original.string == display.string,
             "source_unchanged": data == (try Data(contentsOf: source)), "elapsed_seconds": Date().timeIntervalSince(start)]
         try JSONSerialization.data(withJSONObject: report, options: [.prettyPrinted, .sortedKeys]).write(to: output.appendingPathComponent("display-probe.json"))
         print("DISPLAY_PROBE \(report)")
@@ -48,8 +48,12 @@ import PDFKit
             print("IMAGE_SUPPORT \(name): \(supported) \(result["reasons"] ?? "")")
             try IntegrationChecks.require(supported == expected, "\(name): image-preserving pages and complex-transparency fallback are explicit")
             let original = PDFDocument(data: data)!, display = PDFDocument(data: bytes)!
-            try IntegrationChecks.require(original.pageCount == display.pageCount && original.string == display.string,
-                                          "\(name): display copy preserves searchable text")
+            let reader = PDFReaderDocument()
+            try reader.read(from: source, ofType: "com.adobe.pdf")
+            defer { reader.close() }
+            (reader.pdf as? ImagePreservingPDFDocument)?.imagePreservingDark = true
+            try IntegrationChecks.require(original.pageCount == display.pageCount && reader.pdf?.string == original.string,
+                                          "\(name): dark reading keeps the original searchable text and page count")
             for index in 0..<original.pageCount {
                 let a = original.page(at: index)!, b = display.page(at: index)!
                 try IntegrationChecks.require(a.rotation == b.rotation && a.bounds(for: .cropBox) == b.bounds(for: .cropBox),

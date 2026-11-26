@@ -17,6 +17,8 @@ for alpha in [0.5,None,0.25]:
  if alpha is None:
   c.saveState();c.translate(60,480);c.doForm('unsupported');c.restoreState()
  else:
+  # The soft-mask image should reveal this colored underlay in both themes.
+  c.saveState();c.setFillColorRGB(0.18,0.46,0.74);c.rect(360,500,150,100,fill=1,stroke=0);c.restoreState()
   c.saveState();c.setFillAlpha(alpha);c.setStrokeAlpha(alpha)
   c.drawImage(ImageReader(rgb),60,480,240,160)
   c.drawImage(ImageReader(rgba),320,480,240,160,mask='auto')

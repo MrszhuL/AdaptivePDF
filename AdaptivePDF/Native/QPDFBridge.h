@@ -1,6 +1,8 @@
 #import <Foundation/Foundation.h>
+#import <CoreGraphics/CoreGraphics.h>
 
 NS_ASSUME_NONNULL_BEGIN
+FOUNDATION_EXPORT BOOL APDFHasPDFSignatures(NSData *source, CGPDFDocumentRef _Nullable document);
 /// Merge standard annotation objects into the original object graph. Page
 /// contents, fonts (including ToUnicode), images, outlines and links stay original.
 FOUNDATION_EXPORT NSData * _Nullable APDFWritePreservingContent(
@@ -12,4 +14,6 @@ FOUNDATION_EXPORT BOOL APDFVerifyOriginalContent(
 /// Unsupported pages are left in original colors and listed in the result.
 FOUNDATION_EXPORT NSDictionary * _Nullable APDFCreateImagePreservingDisplay(
     NSData *source, NSError * _Nullable * _Nullable error);
+FOUNDATION_EXPORT NSDictionary * _Nullable APDFCreateCancellableDisplay(
+    NSData *source, NSRange pages, BOOL (^shouldCancel)(void), NSError * _Nullable * _Nullable error);
 NS_ASSUME_NONNULL_END

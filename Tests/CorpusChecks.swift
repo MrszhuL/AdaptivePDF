@@ -116,6 +116,27 @@ enum CorpusChecks {
         try check(document.loadedOnMainThread == false, "Corpus load ran on main thread: \(entry.id)")
         try check(document.canAnnotate, "Corpus document unexpectedly restricts annotations: \(entry.id)")
         let residentAfterOpen = residentMiB()
+        var darkBatchTimes: [String: Double] = [:]
+        if entry.kind != "paper", let renderer = document.imagePreservingRenderer {
+            func waitForDarkPage(_ index: Int) throws -> Double {
+                let began = ProcessInfo.processInfo.systemUptime
+                while !renderer.hasPrepared(index: index), ProcessInfo.processInfo.systemUptime - began < 20 { pump() }
+                try check(renderer.hasPrepared(index: index) && renderer.reason(for: index) == nil,
+                          "Dark page batch failed: \(entry.id), page \(index + 1)")
+                return ProcessInfo.processInfo.systemUptime - began
+            }
+            controller.pdfView.go(to: firstPage)
+            AppearancePreferences.selectReadingTheme(.dark)
+            darkBatchTimes["first_page_s"] = try waitForDarkPage(0)
+            let last = entry.pages - 1
+            try check(!renderer.hasPrepared(index: last), "Opening prepared a distant dark page: \(entry.id)")
+            guard let distant = pdf.page(at: last) else { throw Failure(message: "Last page unavailable") }
+            controller.pdfView.go(to: distant)
+            controller.pageChanged()
+            darkBatchTimes["last_page_after_jump_s"] = try waitForDarkPage(last)
+            AppearancePreferences.mode = .light
+            controller.pdfView.go(to: firstPage)
+        }
         let texts = (0..<pdf.pageCount).map { pdf.page(at: $0)?.string ?? "" }
         let originalTextHash = digest(Data(texts.joined(separator: "\u{0}").utf8))
         let annotationCount = AnnotationStore.entries(in: pdf).count
@@ -181,6 +202,7 @@ enum CorpusChecks {
             "id": entry.id, "kind": entry.kind, "pages": entry.pages, "source": entry.source ?? "generated",
             "source_sha256": entry.sha256, "source_bytes": originalBytes,
             "open_completion_s": openSeconds, "open_main_runloop_largest_gap_s": largestGap,
+            "on_demand_dark_batches": darkBatchTimes,
             "search_s": searchSeconds, "search_results": foundCount, "save_s": saveSeconds,
             "sample_render_mean_channel_differences": renderDifferences,
             "page_content_and_resources_verified": true, "native_text_exact": exactText, "source_bytes_unchanged": true,

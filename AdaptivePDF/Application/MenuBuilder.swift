@@ -52,6 +52,7 @@ enum MenuBuilder {
         add(view, "实际大小", #selector(ReaderWindowController.actualSize(_:)), "0")
         add(view, "适合页面", #selector(ReaderWindowController.fitPage(_:)), "9")
         add(view, "适合宽度", #selector(ReaderWindowController.fitWidth(_:)), "8")
+        add(view, "输入缩放比例…", #selector(ReaderWindowController.focusZoom(_:)), "0", [.command, .shift])
         view.addItem(.separator())
         add(view, "上一页", #selector(ReaderWindowController.previousPage(_:)), "\u{f702}", [.command])
         add(view, "下一页", #selector(ReaderWindowController.nextPage(_:)), "\u{f703}", [.command])

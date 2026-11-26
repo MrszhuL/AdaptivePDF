@@ -24,8 +24,12 @@ final class FormValueTracker {
     private var nativeWidgets: Set<ObjectIdentifier> = []
     private var applying = false
 
-    init(document: PDFReaderDocument, pdf: PDFDocument) {
+    init(document: PDFReaderDocument, pdf: PDFDocument, widgets: [PDFAnnotation]?) {
         self.document = document; self.pdf = pdf
+        annotations = widgets ?? (0..<pdf.pageCount).flatMap { index in
+            pdf.page(at: index)?.annotations.filter { $0.type == "Widget" } ?? []
+        }
+        guard !annotations.isEmpty else { return }
         for (name, key, beginning) in [(Notification.Name.PDFViewAnnotationWillHit, "PDFAnnotationWillHit", true),
                                        (.PDFViewAnnotationHit, "PDFAnnotationHit", false)] {
             notifications.append(NotificationCenter.default.addObserver(forName: name, object: nil, queue: nil) { [weak self] note in
@@ -36,26 +40,24 @@ final class FormValueTracker {
                 else { DispatchQueue.main.async { [weak self] in self?.nativeWidgets.remove(id) } }
             })
         }
-        for index in 0..<pdf.pageCount {
-            for annotation in pdf.page(at: index)?.annotations ?? [] where annotation.type == "Widget" {
-                annotations.append(annotation)
-                values[ObjectIdentifier(annotation)] = Value(annotation)
-                if annotation.widgetFieldType == .button {
-                    observations.append(annotation.observe(\.buttonWidgetStateString, options: [.new]) { [weak self] item, _ in
-                        self?.changed(item)
-                    })
-                    observations.append(annotation.observe(\.buttonWidgetState, options: [.new]) { [weak self] item, _ in
-                        self?.changed(item)
-                    })
-                } else {
-                    observations.append(annotation.observe(\.widgetStringValue, options: [.new]) { [weak self] item, _ in
-                        self?.changed(item)
-                    })
-                }
+        for annotation in annotations {
+            values[ObjectIdentifier(annotation)] = Value(annotation)
+            if annotation.widgetFieldType == .button {
+                observations.append(annotation.observe(\.buttonWidgetStateString, options: [.new]) { [weak self] item, _ in
+                    self?.changed(item)
+                })
+                observations.append(annotation.observe(\.buttonWidgetState, options: [.new]) { [weak self] item, _ in
+                    self?.changed(item)
+                })
+            } else {
+                observations.append(annotation.observe(\.widgetStringValue, options: [.new]) { [weak self] item, _ in
+                    self?.changed(item)
+                })
             }
         }
     }
     deinit { notifications.forEach { NotificationCenter.default.removeObserver($0) } }
+    func tracks(_ pdf: PDFDocument) -> Bool { self.pdf === pdf }
     func synchronize() {
         for annotation in annotations { changed(annotation) }
     }
@@ -64,7 +66,7 @@ final class FormValueTracker {
               let old = values[ObjectIdentifier(annotation)] else { return }
         let current = Value(annotation)
         guard current != old else { return }
-        guard !pdf.isEncrypted, pdf.allowsFormFieldEntry, !annotation.isReadOnly else {
+        guard !pdf.isEncrypted, !document.hasDigitalSignatures, pdf.allowsFormFieldEntry, !annotation.isReadOnly else {
             apply(old, to: annotation)
             return
         }
@@ -75,7 +77,7 @@ final class FormValueTracker {
             (NSApp.currentEvent?.window?.windowController?.document as? PDFReaderDocument) === document
         if document.nativeFormEditorHandlesUndo || nativeWidgets.contains(ObjectIdentifier(annotation)) || nativeKey ||
             document.undoManager?.isUndoing == true || document.undoManager?.isRedoing == true {
-            if let page = annotation.page { document.contentChanged(on: page) }
+            if let page = annotation.page { document.contentChanged(on: page, formOnly: true) }
             return
         }
         registerUndo(to: old, annotation: annotation)
@@ -84,7 +86,7 @@ final class FormValueTracker {
         document.withUndoGroup(named: "填写表单") {
             document.undoManager?.registerUndo(withTarget: self) { $0.restore(value, annotation: annotation) }
         }
-        if let page = annotation.page { document.contentChanged(on: page) }
+        if let page = annotation.page { document.contentChanged(on: page, formOnly: true) }
     }
     private func restore(_ value: Value, annotation: PDFAnnotation) {
         let inverse = Value(annotation)

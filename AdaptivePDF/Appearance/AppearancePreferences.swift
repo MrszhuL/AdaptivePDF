@@ -56,6 +56,34 @@ enum AppearancePreferences {
             NotificationCenter.default.post(name: changed, object: nil)
         }
     }
+    static var customHighlightColor: NSColor? {
+        get {
+            guard let values = store.array(forKey: "customHighlightRGB") as? [Double],
+                  values.count == 3, values.allSatisfy({ (0...1).contains($0) }) else { return nil }
+            return NSColor(srgbRed: values[0], green: values[1], blue: values[2], alpha: 1)
+        }
+        set {
+            guard let color = newValue?.usingColorSpace(.sRGB) else {
+                store.removeObject(forKey: "customHighlightRGB")
+                return
+            }
+            store.set([color.redComponent, color.greenComponent, color.blueComponent], forKey: "customHighlightRGB")
+        }
+    }
+    static var readerWindowSize: NSSize? {
+        get {
+            guard let values = store.array(forKey: "readerWindowSize") as? [Double],
+                  values.count == 2, values.allSatisfy({ $0.isFinite && $0 > 0 }) else { return nil }
+            return NSSize(width: values[0], height: values[1])
+        }
+        set {
+            if let size = newValue {
+                store.set([size.width, size.height], forKey: "readerWindowSize")
+            } else {
+                store.removeObject(forKey: "readerWindowSize")
+            }
+        }
+    }
     /// Choosing a reading theme must also affect the page. Original remains an
     /// explicit opt-out in the Display menu and survives application restarts.
     static func selectReadingTheme(_ selected: ThemeMode) {

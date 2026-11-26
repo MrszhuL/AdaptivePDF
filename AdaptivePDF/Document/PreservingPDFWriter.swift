@@ -35,19 +35,33 @@ final class PreservingPDFWriter {
         let index: Int
     }
     private let source: Data
-    private var originals: [[Original]] = []
+    private let pageCount: Int
+    private var originals: [Int: [Original]] = [:]
     private var identities: [ObjectIdentifier: Original] = [:]
+    private(set) var formWidgets: [PDFAnnotation] = []
 
-    init(source: Data, pdf: PDFDocument) {
+    init(source: Data, pdf: PDFDocument, formPages: [Int]) {
         self.source = source
-        for pageIndex in 0..<pdf.pageCount {
+        pageCount = pdf.pageCount
+        for pageIndex in formPages {
             let annotations = pdf.page(at: pageIndex)?.annotations ?? []
-            let entries = annotations.enumerated().map { index, annotation in
-                Original(annotation: annotation, state: State(annotation), page: pageIndex, index: index)
-            }
-            originals.append(entries)
-            for entry in entries { identities[ObjectIdentifier(entry.annotation)] = entry }
+            formWidgets.append(contentsOf: annotations.filter { $0.type == "Widget" })
+            record(annotations, pageIndex: pageIndex)
         }
+    }
+
+    func captureIfNeeded(on page: PDFPage, annotations: @autoclosure () -> [PDFAnnotation]) {
+        guard let index = page.document?.index(for: page), index >= 0, index < pageCount,
+              originals[index] == nil else { return }
+        record(annotations(), pageIndex: index)
+    }
+
+    private func record(_ annotations: [PDFAnnotation], pageIndex: Int) {
+        let entries = annotations.enumerated().map { index, annotation in
+            Original(annotation: annotation, state: State(annotation), page: pageIndex, index: index)
+        }
+        originals[pageIndex] = entries
+        for entry in entries { identities[ObjectIdentifier(entry.annotation)] = entry }
     }
     private func descriptor(_ annotation: PDFAnnotation) -> [String: Any] {
         let box = annotation.bounds
@@ -55,29 +69,38 @@ final class PreservingPDFWriter {
                 "contents": annotation.contents as Any? ?? NSNull()]
     }
     func data(for pdf: PDFDocument) throws -> Data {
-        guard pdf.pageCount == originals.count else { throw ReaderError.serialization }
+        guard pdf.pageCount == pageCount else { throw ReaderError.serialization }
+        if originals.isEmpty { return source }
         let shadow = PDFDocument()
-        var plans: [Any] = []
+        var plans: [Any] = Array(repeating: NSNull(), count: pageCount)
         var changed = false
-        for pageIndex in 0..<pdf.pageCount {
-            guard let page = pdf.page(at: pageIndex) else { throw ReaderError.serialization }
-            let current = page.annotations
-            let baseline = originals[pageIndex]
-            let unchanged = current.count == baseline.count && zip(current, baseline).allSatisfy {
-                $0.0 === $0.1.annotation && State($0.0) == $0.1.state
+        for pageIndex in originals.keys.sorted() {
+            guard let page = pdf.page(at: pageIndex), let baseline = originals[pageIndex] else {
+                throw ReaderError.serialization
             }
-            if unchanged { plans.append(NSNull()); continue }
+            let current = page.annotations
+            let states = current.map(State.init)
+            let unchanged = current.count == baseline.count && current.indices.allSatisfy {
+                current[$0] === baseline[$0].annotation && states[$0] == baseline[$0].state
+            }
+            if unchanged { continue }
             changed = true
             var currentPlan: [[String: Any]] = []
             var shadowPage: PDFPage?
             var copies: [(Int, PDFAnnotation)] = []
-            for annotation in current {
+            for (index, annotation) in current.enumerated() {
                 let original = identities[ObjectIdentifier(annotation)]
+                let state = states[index]
                 var item = descriptor(annotation)
                 item["originalPage"] = original?.page ?? pageIndex
                 item["originalIndex"] = original?.index ?? -1
                 item["keepOriginalBounds"] = original?.state.bounds == annotation.bounds
-                if original == nil || original?.page != pageIndex || State(annotation) != original?.state {
+                if original == nil || original?.page != pageIndex || state != original?.state {
+                    item["contentsChanged"] = state.contents != original?.state.contents
+                    item["colorChanged"] = state.rgba != original?.state.rgba
+                    item["quadsChanged"] = state.quads != original?.state.quads
+                    item["fieldText"] = state.field
+                    if state.button != nil { item["buttonOn"] = annotation.buttonWidgetState != .offState }
                     if shadowPage == nil {
                         let blank = PDFPage()
                         blank.setBounds(page.bounds(for: .mediaBox), for: .mediaBox)
@@ -99,20 +122,13 @@ final class PreservingPDFWriter {
                     currentPlan[index]["shadowIndex"] = slot
                 }
             }
-            plans.append(["original": baseline.map { descriptor($0.annotation) }, "current": currentPlan])
-        }
-        if !changed { return source }
-        // A deleted original's live object can have been edited since loading;
-        // baseline validation must use the original coordinates, never its new ones.
-        for index in plans.indices {
-            guard var plan = plans[index] as? [String: Any] else { continue }
-            plan["original"] = originals[index].map { entry in
+            plans[pageIndex] = ["original": baseline.map { entry in
                 ["type": entry.state.type ?? "", "bounds": [entry.state.bounds.minX, entry.state.bounds.minY,
                                                              entry.state.bounds.maxX, entry.state.bounds.maxY],
                  "contents": entry.state.contents as Any? ?? NSNull()] as [String: Any]
-            }
-            plans[index] = plan
+            }, "current": currentPlan]
         }
+        if !changed { return source }
         let annotationData: Data
         if shadow.pageCount > 0 {
             guard let data = shadow.dataRepresentation() else { throw ReaderError.serialization }

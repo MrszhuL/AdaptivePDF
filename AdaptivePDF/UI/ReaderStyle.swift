@@ -11,10 +11,9 @@ enum ReaderStyle {
     }
     static let sidebar = color(0xF5F5F3, 0x242629)
     static let canvas = color(0xE7E9EB, 0x15171A)
-    static let footer = color(0xFAFAF9, 0x202225)
+    static let welcome = color(0xF7F7F5, 0x202225)
     static let control = color(0xFFFFFF, 0x303338)
     static let border = color(0xDFE2E6, 0x3C4046)
-    static let welcome = color(0xF7F7F5, 0x202225)
 
     static func symbol(_ name: String, size: CGFloat = 13, weight: NSFont.Weight = .regular) -> NSImage? {
         NSImage(systemSymbolName: name, accessibilityDescription: nil)?
@@ -28,6 +27,77 @@ enum ReaderStyle {
             return true
         }
     }
+}
+
+final class ReaderNumberPopover: NSViewController {
+    private let heading: String
+    private let field: NSTextField
+    private let hint: String
+    private let shortcuts: [(String, Selector)]
+    private let onApply: (String) -> Bool
+    private let onShortcut: (Selector) -> Void
+    private let feedback = NSTextField(labelWithString: "")
+
+    init(title: String, value: String, hint: String, shortcuts: [(String, Selector)],
+         onApply: @escaping (String) -> Bool, onShortcut: @escaping (Selector) -> Void) {
+        heading = title
+        field = NSTextField(string: value)
+        self.hint = hint
+        self.shortcuts = shortcuts
+        self.onApply = onApply
+        self.onShortcut = onShortcut
+        super.init(nibName: nil, bundle: nil)
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func loadView() {
+        view = NSView(frame: NSRect(x: 0, y: 0, width: 256, height: 124))
+        let title = NSTextField(labelWithString: heading)
+        title.font = .systemFont(ofSize: 13, weight: .semibold)
+        field.font = .monospacedDigitSystemFont(ofSize: 13, weight: .medium)
+        field.target = self
+        field.action = #selector(apply(_:))
+        field.setAccessibilityLabel(heading)
+        field.identifier = .init("readerNumberInput")
+        field.setAccessibilityIdentifier("readerNumberInput")
+        field.widthAnchor.constraint(equalToConstant: 72).isActive = true
+        feedback.stringValue = hint
+        feedback.font = .systemFont(ofSize: 11)
+        feedback.textColor = .secondaryLabelColor
+        let applyButton = NSButton(title: "确定", target: self, action: #selector(apply(_:)))
+        applyButton.controlSize = .small
+        let input = NSStackView(views: [field, feedback, applyButton])
+        let options = NSStackView(views: shortcuts.enumerated().map { index, shortcut in
+            let button = NSButton(title: shortcut.0, target: self, action: #selector(chooseShortcut(_:)))
+            button.controlSize = .small
+            button.tag = index
+            return button
+        })
+        let stack = NSStackView(views: [title, input, options])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 10
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 14),
+            stack.topAnchor.constraint(equalTo: view.topAnchor, constant: 13),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -14)
+        ])
+    }
+
+    func focusInput() { field.selectText(nil) }
+
+    @objc private func apply(_ sender: Any?) {
+        let value = (field.currentEditor()?.string ?? field.stringValue).trimmingCharacters(in: .whitespacesAndNewlines)
+        if !onApply(value) {
+            feedback.textColor = .systemRed
+            NSSound.beep()
+            focusInput()
+        }
+    }
+
+    @objc private func chooseShortcut(_ sender: NSButton) { onShortcut(shortcuts[sender.tag].1) }
 }
 
 final class ReaderToolbarButton: NSButton {
@@ -62,53 +132,71 @@ final class ReaderToolbarButton: NSButton {
 }
 
 final class ReaderColorPaletteController: NSViewController {
-    private let selected: HighlightColor
-    private let onSelect: (HighlightColor) -> Void
-    init(selected: HighlightColor, onSelect: @escaping (HighlightColor) -> Void) {
-        self.selected = selected; self.onSelect = onSelect
+    private let selected: NSColor
+    private let custom: NSColor?
+    private let onSelect: (NSColor) -> Void
+    private let onEditCustom: () -> Void
+    init(selected: NSColor, custom: NSColor?, onSelect: @escaping (NSColor) -> Void,
+         onEditCustom: @escaping () -> Void) {
+        self.selected = selected
+        self.custom = custom
+        self.onSelect = onSelect
+        self.onEditCustom = onEditCustom
         super.init(nibName: nil,bundle: nil)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
     override func loadView() {
-        view = NSView(frame: NSRect(x: 0,y: 0,width: 184,height: 98))
+        view = NSView(frame: NSRect(x: 0, y: 0, width: 228, height: 126))
         let title = NSTextField(labelWithString: "高亮颜色")
         title.font = .systemFont(ofSize: 12,weight: .semibold)
         let palette = NSStackView()
         palette.spacing = 8
-        for color in HighlightColor.allCases {
-            let button = ReaderColorSwatch(color: color,selected: color == selected)
-            button.tag = color.rawValue; button.target = self; button.action = #selector(choose(_:))
-            let label = NSTextField(labelWithString: color.title)
+        func addSwatch(_ color: NSColor, title: String, index: Int) {
+            let button = ReaderColorSwatch(color: color, title: title, index: index,
+                                           selected: color.usingColorSpace(.sRGB) == selected.usingColorSpace(.sRGB))
+            button.target = self
+            button.action = #selector(choose(_:))
+            let label = NSTextField(labelWithString: title)
             label.font = .systemFont(ofSize: 10); label.textColor = .secondaryLabelColor
             let column = NSStackView(views: [button,label])
             column.orientation = .vertical; column.spacing = 3
             palette.addArrangedSubview(column)
         }
-        for child in [title,palette] { child.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(child) }
+        for color in HighlightColor.allCases {
+            addSwatch(color.color, title: color.title, index: color.rawValue)
+        }
+        if let custom { addSwatch(custom, title: "自定", index: HighlightColor.allCases.count) }
+        let edit = NSButton(title: "自定义颜色…", target: self, action: #selector(editCustom(_:)))
+        edit.controlSize = .small
+        edit.identifier = .init("editHighlightColor")
+        edit.setAccessibilityIdentifier("editHighlightColor")
+        for child in [title, palette, edit] { child.translatesAutoresizingMaskIntoConstraints = false; view.addSubview(child) }
         NSLayoutConstraint.activate([
             title.leadingAnchor.constraint(equalTo: view.leadingAnchor,constant: 16),
             title.topAnchor.constraint(equalTo: view.topAnchor,constant: 12),
             palette.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            palette.topAnchor.constraint(equalTo: title.bottomAnchor,constant: 8)
+            palette.topAnchor.constraint(equalTo: title.bottomAnchor,constant: 8),
+            edit.leadingAnchor.constraint(equalTo: title.leadingAnchor),
+            edit.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -10)
         ])
     }
-    @objc private func choose(_ sender: NSButton) {
-        if let color = HighlightColor(rawValue: sender.tag) { onSelect(color) }
-    }
+    @objc private func choose(_ sender: ReaderColorSwatch) { onSelect(sender.swatchColor) }
+    @objc private func editCustom(_ sender: NSButton) { onEditCustom() }
 }
 
 private final class ReaderColorSwatch: NSButton {
-    private let color: HighlightColor
+    let swatchColor: NSColor
     private let chosen: Bool
-    init(color: HighlightColor,selected: Bool) {
-        self.color = color; self.chosen = selected
+    init(color: NSColor, title: String, index: Int, selected: Bool) {
+        self.swatchColor = color
+        self.chosen = selected
         super.init(frame: .zero)
         isBordered = false; bezelStyle = .inline
-        setAccessibilityLabel(color.title)
-        setAccessibilityIdentifier("highlightColor-\(color.rawValue)")
-        identifier = .init("highlightColor-\(color.rawValue)")
+        setAccessibilityLabel(title)
+        setAccessibilityIdentifier("highlightColor-\(index)")
+        identifier = .init("highlightColor-\(index)")
         setAccessibilityValue(selected ? 1 : 0)
-        toolTip = color.title
+        toolTip = title
         translatesAutoresizingMaskIntoConstraints = false
         widthAnchor.constraint(equalToConstant: 32).isActive = true
         heightAnchor.constraint(equalToConstant: 32).isActive = true
@@ -116,7 +204,7 @@ private final class ReaderColorSwatch: NSButton {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
     override func draw(_ dirtyRect: NSRect) {
         let circle = NSBezierPath(ovalIn: bounds.insetBy(dx: 6,dy: 6))
-        color.color.setFill(); circle.fill()
+        swatchColor.setFill(); circle.fill()
         NSColor.black.withAlphaComponent(0.12).setStroke(); circle.lineWidth = 0.7; circle.stroke()
         if chosen || isHighlighted {
             NSColor.labelColor.withAlphaComponent(chosen ? 0.75 : 0.3).setStroke()
@@ -126,13 +214,51 @@ private final class ReaderColorSwatch: NSButton {
     }
 }
 
-final class ReaderProgressView: NSView {
-    var fraction: CGFloat = 0 { didSet { needsDisplay = true } }
-    override func viewDidChangeEffectiveAppearance() { super.viewDidChangeEffectiveAppearance(); needsDisplay = true }
-    override func draw(_ dirtyRect: NSRect) {
-        ReaderStyle.border.withAlphaComponent(0.45).setFill(); bounds.fill()
-        NSColor.controlAccentColor.withAlphaComponent(0.65).setFill()
-        NSRect(x: 0,y: 0,width: bounds.width * min(1,max(0,fraction)),height: bounds.height).fill()
+final class ReaderActivityHUD: NSVisualEffectView {
+    private let label = NSTextField(labelWithString: "")
+    private var dismissal: Timer?
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        material = .popover
+        blendingMode = .withinWindow
+        state = .active
+        wantsLayer = true
+        layer?.cornerRadius = 10
+        layer?.masksToBounds = true
+        identifier = .init("readerActivityHUD")
+        isHidden = true
+        label.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            label.topAnchor.constraint(equalTo: topAnchor, constant: 7),
+            label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -7)
+        ])
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    deinit { dismissal?.invalidate() }
+
+    func show(_ text: String) {
+        if label.stringValue != text { label.stringValue = text }
+        if isHidden { isHidden = false }
+        if let dismissal {
+            dismissal.fireDate = Date(timeIntervalSinceNow: 1.2)
+        } else {
+            let timer = Timer(timeInterval: 1.2, repeats: false) { [weak self] _ in self?.hide() }
+            dismissal = timer
+            RunLoop.main.add(timer, forMode: .common)
+        }
+    }
+
+    func hide() {
+        dismissal?.invalidate()
+        dismissal = nil
+        isHidden = true
     }
 }
 

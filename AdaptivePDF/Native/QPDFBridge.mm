@@ -1,5 +1,6 @@
 #import "QPDFBridge.h"
 #include <qpdf/QPDF.hh>
+#include <qpdf/QPDFAcroFormDocumentHelper.hh>
 #include <qpdf/QPDFPageDocumentHelper.hh>
 #include <qpdf/QPDFWriter.hh>
 #include <cmath>
@@ -51,6 +52,24 @@ Object importObject(QPDF& source, QPDF& foreign, Object object) {
     if (!object.isIndirect()) object = foreign.makeIndirectObject(object);
     return source.copyForeignObject(object);
 }
+bool hasSignatures(QPDF& pdf, QPDFAcroFormDocumentHelper& forms) {
+    auto permissions = pdf.getRoot().getKey("/Perms");
+    for (auto key : {"/DocMDP", "/UR", "/UR3"}) {
+        if (!permissions.getKeyIfDict(key).isNull()) return true;
+    }
+    if (!forms.hasAcroForm()) return false;
+    for (auto field : forms.getFormFields()) {
+        if (field.getFieldType() == "/Sig" && !field.getValue().isNull()) return true;
+    }
+    return false;
+}
+
+void copyKey(QPDF& source, QPDF& edits, Object target, Object foreign, const char* key,
+             bool clearAbsent = false) {
+    auto value = foreign.getKey(key);
+    if (!value.isNull()) target.replaceKey(key, importObject(source, edits, value));
+    else if (clearAbsent) target.removeKey(key);
+}
 using Seen = std::set<std::pair<QPDFObjGen, QPDFObjGen>>;
 bool sameContent(Object a, Object b, Seen& seen, int depth = 0) {
     if (depth > 256) throw std::runtime_error("PDF resource graph exceeds the verification depth limit");
@@ -96,6 +115,29 @@ void verifyPages(QPDF& original, QPDF& candidate) {
 }
 }
 
+BOOL APDFHasPDFSignatures(NSData *data, CGPDFDocumentRef document) {
+    if (document) {
+        auto catalog = CGPDFDocumentGetCatalog(document);
+        CGPDFDictionaryRef form;
+        CGPDFArrayRef fields;
+        CGPDFObjectRef entry;
+        bool hasFields = catalog && CGPDFDictionaryGetDictionary(catalog, "AcroForm", &form) &&
+            CGPDFDictionaryGetArray(form, "Fields", &fields) && CGPDFArrayGetCount(fields) > 0;
+        if (catalog && !hasFields &&
+            !CGPDFDictionaryGetObject(catalog, "Perms", &entry)) return NO;
+    }
+    try {
+        QPDF pdf;
+        pdf.setSuppressWarnings(true);
+        pdf.processMemoryFile("signature-check.pdf", (const char *)data.bytes, data.length);
+        QPDFAcroFormDocumentHelper forms(pdf);
+        return hasSignatures(pdf, forms);
+    } catch (std::exception const&) {
+        // The writer will refuse to rewrite source data it cannot parse.
+        return NO;
+    }
+}
+
 BOOL APDFVerifyOriginalContent(NSData *sourceData, NSData *candidateData, NSError **error) {
     try {
         QPDF original, candidate;
@@ -119,6 +161,9 @@ NSData *APDFWritePreservingContent(NSData *data, NSData *annotationData, NSArray
         source.setSuppressWarnings(true);
         source.processMemoryFile("original.pdf", (const char *)data.bytes, data.length);
         if (source.isEncrypted()) throw std::runtime_error("Encrypted PDFs are read-only");
+        QPDFAcroFormDocumentHelper sourceForms(source);
+        if (hasSignatures(source, sourceForms))
+            throw std::runtime_error("A full rewrite would invalidate existing digital signatures");
         auto pages = QPDFPageDocumentHelper(source).getAllPages();
         if (pages.size() != plans.count) throw std::runtime_error("Original page count does not match the document");
         std::vector<QPDFPageObjectHelper> editPages;
@@ -127,6 +172,7 @@ NSData *APDFWritePreservingContent(NSData *data, NSData *annotationData, NSArray
             edits.processMemoryFile("annotations.pdf", (const char *)annotationData.bytes, annotationData.length);
             editPages = QPDFPageDocumentHelper(edits).getAllPages();
         }
+        QPDFAcroFormDocumentHelper editForms(edits);
         std::vector<std::vector<Object>> originals(pages.size());
         for (size_t page = 0; page != pages.size(); ++page) {
             auto array = pages[page].getObjectHandle().getKey("/Annots");
@@ -154,6 +200,7 @@ NSData *APDFWritePreservingContent(NSData *data, NSData *annotationData, NSArray
             }
         }
         std::map<QPDFObjGen, Object> replacements;
+        std::map<QPDFObjGen, QPDFFormFieldObjectHelper> changedButtons;
         std::vector<std::vector<Object>> results(pages.size());
         for (size_t page = 0; page != pages.size(); ++page) {
             id plan = plans[page];
@@ -180,25 +227,79 @@ NSData *APDFWritePreservingContent(NSData *data, NSData *annotationData, NSArray
                     auto foreign = array.getArrayItem((int)shadowIndex);
                     validate(foreign, item);
                     if (prior.isDictionary() && prior.getKey("/Subtype").isNameAndEquals("/Widget")) {
-                        // Keep the original widget object: AcroForm /Fields and
-                        // /Kids must continue to reference the same field tree.
-                        for (auto key : {"/AP", "/AS", "/V", "/I", "/M"}) {
-                            auto value = foreign.getKey(key);
-                            if (!value.isNull()) prior.replaceKey(key, importObject(source, edits, value));
-                        }
-                        auto value = foreign.getKey("/V");
+                        auto field = sourceForms.getFieldForAnnotation(QPDFAnnotationObjectHelper(prior));
                         auto parent = prior.getKey("/Parent");
-                        for (int depth = 0; parent.isDictionary() && depth < 64; ++depth) {
-                            if (!value.isNull() && (parent.hasKey("/FT") || parent.hasKey("/V"))) {
-                                parent.replaceKey("/V", importObject(source, edits, value)); break;
-                            }
-                            parent = parent.getKey("/Parent");
+                        // A separate unnamed widget is only the appearance of
+                        // its immediate field. qpdf may expose it as a node in
+                        // the field tree, but the field value belongs to /Parent.
+                        if (!prior.hasKey("/T") && parent.isDictionary()) field = QPDFFormFieldObjectHelper(parent);
+                        auto terminal = field.getObjectHandle();
+                        if (!terminal.isDictionary())
+                            throw std::runtime_error("Edited widget has no terminal AcroForm field");
+                        for (auto key : {"/AP", "/M"}) copyKey(source, edits, prior, foreign, key);
+                        auto appearanceState = foreign.getKey("/AS");
+                        if (appearanceState.isName()) prior.replaceKey("/AS", Object::newName(appearanceState.getName()));
+                        if (!terminal.isSameObjectAs(prior)) {
+                            prior.removeKey("/V");
+                            prior.removeKey("/I");
                         }
-                        result = prior;
+                        if (field.isCheckbox() || field.isRadioButton()) {
+                            if (![item[@"buttonOn"] boolValue]) {
+                                prior.replaceKey("/AS", Object::newName("/Off"));
+                            } else {
+                                auto state = foreign.getKey("/AS");
+                                if (!state.isName() || state.isNameAndEquals("/Off")) {
+                                    auto normal = prior.getKeyIfDict("/AP").getKeyIfDict("/N");
+                                    auto value = foreign.getKey("/V");
+                                    if (value.isName() && !value.isNameAndEquals("/Off") &&
+                                        normal.isDictionary() && normal.hasKey(value.getName())) {
+                                        state = Object::newName(value.getName());
+                                    } else if (normal.isDictionary()) {
+                                        for (auto const& key : normal.getKeys()) {
+                                            if (key != "/Off") { state = Object::newName(key); break; }
+                                        }
+                                    }
+                                    if (!state.isName() || state.isNameAndEquals("/Off"))
+                                        throw std::runtime_error("Cannot determine a checked widget's appearance state");
+                                    prior.replaceKey("/AS", state);
+                                }
+                            }
+                            changedButtons.emplace(terminal.getObjGen(), field);
+                        } else if (field.isText() || field.isChoice()) {
+                            auto exportedField = editForms.getFieldForAnnotation(QPDFAnnotationObjectHelper(foreign));
+                            auto value = foreign.getKey("/V");
+                            if (value.isNull() && !exportedField.getObjectHandle().isNull()) value = exportedField.getValue();
+                            if (!value.isNull()) field.setV(importObject(source, edits, value), false);
+                            else {
+                                id text = item[@"fieldText"];
+                                field.setV([text isKindOfClass:NSString.class] ?
+                                    std::string([text UTF8String]) : std::string(), false);
+                            }
+                            if (field.isChoice()) {
+                                auto choices = exportedField.getObjectHandle();
+                                if (!choices.isDictionary() || !choices.hasKey("/I")) choices = foreign;
+                                copyKey(source, edits, terminal, choices, "/I", true);
+                            }
+                        }
+                    } else if (prior.isDictionary()) {
+                        // Other annotations, the structure tree and reply threads can all
+                        // refer to this object. Merge only the properties our editor changes.
+                        bool contents = [item[@"contentsChanged"] boolValue];
+                        bool color = [item[@"colorChanged"] boolValue];
+                        bool bounds = ![item[@"keepOriginalBounds"] boolValue];
+                        bool quads = [item[@"quadsChanged"] boolValue];
+                        if (contents) copyKey(source, edits, prior, foreign, "/Contents", true);
+                        if (color) {
+                            copyKey(source, edits, prior, foreign, "/C", true);
+                            copyKey(source, edits, prior, foreign, "/CA");
+                        }
+                        if (bounds) copyKey(source, edits, prior, foreign, "/Rect");
+                        if (quads) copyKey(source, edits, prior, foreign, "/QuadPoints", true);
+                        if (color || bounds || quads || (contents && prior.getKey("/Subtype").isNameAndEquals("/FreeText")))
+                            copyKey(source, edits, prior, foreign, "/AP", true);
+                        copyKey(source, edits, prior, foreign, "/M");
                     } else {
                         result = importObject(source, edits, foreign);
-                        if (!prior.isNull() && [item[@"keepOriginalBounds"] boolValue])
-                            result.replaceKey("/Rect", prior.getKey("/Rect"));
                     }
                     result.replaceKey("/P", pages[page].getObjectHandle());
                     auto popup = result.getKey("/Popup");
@@ -209,10 +310,31 @@ NSData *APDFWritePreservingContent(NSData *data, NSData *annotationData, NSArray
                 results[page].push_back(result);
             }
         }
+        for (auto& entry : changedButtons) {
+            auto& field = entry.second;
+            // Compute the group value after all of its widgets have been merged.
+            auto selected = Object::newName("/Off");
+            auto terminal = field.getObjectHandle();
+            auto widgets = terminal.getKey("/Kids");
+            auto candidates = widgets.isArray() ? widgets.getArrayAsVector() : std::vector<Object>{terminal};
+            for (auto candidate : candidates) {
+                auto state = candidate.getKeyIfDict("/AS");
+                if (state.isName() && !state.isNameAndEquals("/Off")) {
+                    selected = state;
+                    break;
+                }
+            }
+            field.setFieldAttribute("/V", selected);
+        }
         for (size_t page = 0; page != pages.size(); ++page) {
-            if (plans[page] == NSNull.null) continue;
+            if (plans[page] == NSNull.null) continue; // reply links are on the same page
             std::vector<Object> filtered;
             for (auto object : results[page]) {
+                auto replyTo = object.getKey("/IRT");
+                if (replyTo.isIndirect() && replacements.find(replyTo.getObjGen()) == replacements.end()) {
+                    object.removeKey("/IRT");
+                    object.removeKey("/RT");
+                }
                 if (object.getKey("/Subtype").isNameAndEquals("/Popup")) {
                     auto parent = object.getKey("/Parent");
                     if (parent.isIndirect()) {
@@ -244,7 +366,8 @@ NSData *APDFWritePreservingContent(NSData *data, NSData *annotationData, NSArray
         verifyPages(source, verified);
         if (source.anyWarnings() || verified.anyWarnings() || (annotationData.length && edits.anyWarnings()))
             throw std::runtime_error("PDF structure warnings prevent a verified save");
-        return [NSData dataWithBytes:buffer->getBuffer() length:buffer->getSize()];
+        return [[NSData alloc] initWithBytesNoCopy:buffer->getBuffer() length:buffer->getSize()
+            deallocator:^(void *, NSUInteger) { (void)buffer; }];
     } catch (std::exception const& exception) {
         if (error) {
             NSString *detail = [NSString stringWithUTF8String:exception.what()] ?: @"Unknown PDF preservation error";

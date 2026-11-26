@@ -87,16 +87,21 @@ if args.notarized:
     subprocess.run(["xcrun", "stapler", "validate", str(out / "AdaptivePDF.dmg")], check=True)
     subprocess.run(["spctl", "--assess", "--type", "execute", str(args.app)], check=True)
 
-sources = []
-for base in ["AdaptivePDF", "AdaptivePDF.xcodeproj", "Tests", "scripts", "Verification", "Vendor", "docs"]:
-    sources.extend(path for path in (root / base).rglob("*") if path.is_file() and
-                   not {"__pycache__", "xcuserdata"}.intersection(path.parts))
-sources.extend(root / name for name in ["README.md", "TESTING.md", "RELEASE.md", ".gitignore", ".gitattributes"])
-source_hashes = {str(path.relative_to(root)): hashlib.sha256(path.read_bytes()).hexdigest() for path in sorted(sources)}
+source_roots = ["AdaptivePDF", "AdaptivePDF.xcodeproj", "Tests", "scripts", "Verification", "Vendor", "docs",
+                "README.md", "TESTING.md", "RELEASE.md", ".gitignore", ".gitattributes"]
+tracked = subprocess.check_output(["git", "-C", str(root), "ls-files", "--cached", "-z", "--", *source_roots])
+sources = sorted({Path(os.fsdecode(name)) for name in tracked.split(b"\0") if name})
+source_hashes = {}
 source_archive = out / "AdaptivePDF-source.zip"
 with zipfile.ZipFile(source_archive, "w", zipfile.ZIP_DEFLATED) as archive:
-    for path in sorted(sources):
-        archive.write(path, Path("AdaptivePDF") / path.relative_to(root))
+    for relative in sources:
+        path = root / relative
+        if not path.is_file() or path.resolve() != path:
+            raise ValueError(f"Release source must be a regular file: {relative}")
+        contents = path.read_bytes()
+        source_hashes[str(relative)] = hashlib.sha256(contents).hexdigest()
+        entry = zipfile.ZipInfo.from_file(path, (Path("AdaptivePDF") / relative).as_posix())
+        archive.writestr(entry, contents, compress_type=zipfile.ZIP_DEFLATED)
 artifacts = {}
 for path in sorted(out.glob("*")):
     if path.suffix in {".zip", ".dmg"}:
