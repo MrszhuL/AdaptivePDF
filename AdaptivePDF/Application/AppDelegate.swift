@@ -3,6 +3,9 @@ import PDFKit
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var welcome: NSWindow?
+    private let backgroundPinch = BackgroundPinchMonitor()
+    private var pinchSetupItem: NSMenuItem?
+    private var hasFinishedPinchSetup = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -31,16 +34,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         #endif
+        hasFinishedPinchSetup = true
+        refreshBackgroundPinch()
         DispatchQueue.main.async { [weak self] in
             if NSDocumentController.shared.documents.isEmpty { self?.showWelcome() }
         }
     }
-    #if DEBUG || INTEGRATION_TESTS
+    func applicationDidBecomeActive(_ notification: Notification) {
+        if hasFinishedPinchSetup { refreshBackgroundPinch() }
+    }
+
+    private func refreshBackgroundPinch() {
+        if backgroundPinch.start() {
+            if let item = pinchSetupItem { item.menu?.removeItem(item) }
+            pinchSetupItem = nil
+        } else if pinchSetupItem == nil, let menu = NSApp.mainMenu?.item(withTitle: "显示")?.submenu {
+            let item = NSMenuItem(title: "启用后台捏合缩放…", action: #selector(enableBackgroundPinch(_:)), keyEquivalent: "")
+            item.target = self
+            menu.addItem(item)
+            pinchSetupItem = item
+        }
+    }
+
+    @objc private func enableBackgroundPinch(_ sender: Any?) {
+        if !CGPreflightListenEventAccess() { _ = CGRequestListenEventAccess() }
+        refreshBackgroundPinch()
+        guard pinchSetupItem != nil else { return }
+        let alert = NSAlert()
+        alert.messageText = "后台捏合缩放尚未启用"
+        alert.informativeText = CGPreflightListenEventAccess()
+            ? "macOS 尚未启用手势监听。请退出并重新打开 AdaptivePDF。"
+            : "请在系统设置的「隐私与安全性 → 输入监控」中允许 AdaptivePDF。如果旧版已在列表中，请重新添加「应用程序」里的 AdaptivePDF，然后退出并重新打开应用。"
+        alert.runModal()
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
+        backgroundPinch.stop()
+        #if DEBUG || INTEGRATION_TESTS
         CloseFlowChecks.applicationWillTerminate()
         AppearanceRestartChecks.applicationWillTerminate()
+        #endif
     }
-    #endif
     func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool { false }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {

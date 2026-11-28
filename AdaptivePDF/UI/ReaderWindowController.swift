@@ -1017,6 +1017,12 @@ private final class ReaderWindow: NSWindow {
     weak var pdfView: ReaderPDFView?
     var onZoom: (() -> Void)?
 
+    func pinchLocation(at screenPoint: NSPoint) -> NSPoint? {
+        guard isVisible, !isMiniaturized, attachedSheet == nil, let pdfView else { return nil }
+        let point = pdfView.convert(convertPoint(fromScreen: screenPoint), from: nil)
+        return pdfView.visibleRect.contains(point) ? point : nil
+    }
+
     override func sendEvent(_ event: NSEvent) {
         guard (event.type == .scrollWheel || event.type == .magnify),
               let pdfView, attachedSheet == nil else { super.sendEvent(event); return }
@@ -1035,6 +1041,112 @@ private final class ReaderWindow: NSWindow {
         }
         super.sendEvent(event)
         if magnifyingPDF, pdfView.scaleFactor != oldScale { onZoom?() }
+    }
+}
+
+/// Quartz exposes native trackpad input as gesture packets. Let AppKit decode
+/// them before routing just the magnification events to the reader.
+final class BackgroundPinchMonitor {
+    private var tap: CFMachPort?
+    private var source: CFRunLoopSource?
+    private weak var target: ReaderWindow?
+
+    deinit { stop() }
+
+    @discardableResult
+    func start() -> Bool {
+        guard CGPreflightListenEventAccess() else {
+            stop()
+            return false
+        }
+        if let tap, CFMachPortIsValid(tap), CGEvent.tapIsEnabled(tap: tap) { return true }
+        stop()
+        // The session tap carries .gesture. .magnify is the decoded AppKit
+        // subtype, so subscribing to the latter misses the hardware packets.
+        let gestureMask = CGEventMask(NSEvent.EventTypeMask.gesture.rawValue)
+        guard let tap = CGEvent.tapCreate(tap: .cgSessionEventTap, place: .tailAppendEventTap,
+                                          options: .listenOnly, eventsOfInterest: gestureMask,
+                                          callback: { _, type, event, context in
+            if let context {
+                Unmanaged<BackgroundPinchMonitor>.fromOpaque(context).takeUnretainedValue().receive(type, event)
+            }
+            return Unmanaged.passUnretained(event)
+        }, userInfo: Unmanaged.passUnretained(self).toOpaque()) else { return false }
+        guard let source = CFMachPortCreateRunLoopSource(nil, tap, 0) else {
+            CFMachPortInvalidate(tap)
+            return false
+        }
+        self.tap = tap
+        self.source = source
+        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
+        CGEvent.tapEnable(tap: tap, enable: true)
+        if !CGEvent.tapIsEnabled(tap: tap) {
+            stop()
+            return false
+        }
+        return true
+    }
+
+    func stop() {
+        if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
+        if let tap { CFMachPortInvalidate(tap) }
+        source = nil
+        tap = nil
+        target = nil
+    }
+
+    private func receive(_ type: CGEventType, _ event: CGEvent) {
+        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
+            target = nil
+            if type == .tapDisabledByTimeout, let tap { CGEvent.tapEnable(tap: tap, enable: true) }
+            return
+        }
+        guard !NSApp.isActive, let event = NSEvent(cgEvent: event) else {
+            target = nil
+            return
+        }
+        let phase: NSEvent.Phase
+        let amount: CGFloat
+        switch event.type {
+        case .beginGesture: phase = .began; amount = 0
+        case .endGesture: phase = .ended; amount = 0
+        case .magnify: phase = event.phase; amount = event.magnification
+        default: return
+        }
+        let point = NSEvent.mouseLocation
+        // Return to Window Server before triggering PDFKit layout and drawing.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, self.tap != nil else { return }
+            if NSApp.isActive { self.target = nil; return }
+            self.route(phase: phase, magnification: amount, at: point)
+        }
+    }
+
+    @discardableResult
+    func route(phase: NSEvent.Phase, magnification: CGFloat, at screenPoint: NSPoint) -> Bool {
+        if phase.contains(.cancelled) {
+            target = nil
+            return false
+        }
+        let ends = phase.contains(.ended)
+        defer {
+            if ends { target = nil }
+        }
+        guard phase.isEmpty || phase.contains(.began) || phase.contains(.changed) || ends else { return false }
+
+        // Window Server hit-testing excludes readers covered by another app,
+        // even if some other part of the reader is visible.
+        let number = NSWindow.windowNumber(at: screenPoint, belowWindowWithWindowNumber: 0)
+        let reader = NSApp.window(withWindowNumber: number) as? ReaderWindow
+        let point = reader?.pinchLocation(at: screenPoint)
+        if phase.contains(.began) { target = point == nil ? nil : reader }
+        guard let reader, let point, (phase.isEmpty || target === reader) else {
+            target = nil
+            return false
+        }
+        guard reader.pdfView?.handlePinch(magnification: magnification, at: point) == true else { return false }
+        reader.onZoom?()
+        return true
     }
 }
 

@@ -137,6 +137,29 @@ import PDFKit
         let momentum = view.handleZoomScroll(delta: 8, modifiers: .option, momentum: .changed, at: point)
         try IntegrationChecks.require(!ordinary && momentum && view.scaleFactor == afterZoom,
                                       "Ordinary scrolling and gesture inertia do not change scale")
+
+        let pinch = BackgroundPinchMonitor()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let screenPoint = window.convertPoint(toScreen: view.convert(point, to: nil))
+        let keyWindow = NSApp.keyWindow
+        pinch.route(phase: .began, magnification: 0, at: screenPoint)
+        let spread = pinch.route(phase: .changed, magnification: 0.25, at: screenPoint)
+        try IntegrationChecks.require(spread && abs(view.scaleFactor - afterZoom * 1.25) < 0.001 &&
+                                      NSApp.keyWindow === keyWindow && !window.isKeyWindow && hudLabel.stringValue.contains("%"),
+                                      "A native pinch delta zooms the exposed non-key reader without taking focus")
+        let pinchIn = pinch.route(phase: .changed, magnification: -0.20, at: screenPoint)
+        try IntegrationChecks.require(pinchIn && abs(view.scaleFactor - afterZoom) < 0.001,
+                                      "An inward pinch reduces the non-key reader's scale")
+        pinch.route(phase: .cancelled, magnification: 0, at: screenPoint)
+        let afterCancel = pinch.route(phase: .changed, magnification: 0.25, at: screenPoint)
+        try IntegrationChecks.require(!afterCancel && abs(view.scaleFactor - afterZoom) < 0.001,
+                                      "A cancelled pinch cannot continue zooming")
+        other.setFrameOrigin(NSPoint(x: screenPoint.x - 80, y: screenPoint.y - 50))
+        other.orderFrontRegardless()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        let covered = pinch.route(phase: .began, magnification: 0.25, at: screenPoint)
+        try IntegrationChecks.require(!covered && abs(view.scaleFactor - afterZoom) < 0.001,
+                                      "An overlapping front window blocks pinch routing to the reader")
         other.orderOut(nil)
         window.makeKeyAndOrderFront(nil)
         controller.pdfView.setManualScale(1)

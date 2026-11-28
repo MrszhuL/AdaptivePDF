@@ -106,6 +106,17 @@ final class ReaderPDFView: PDFView {
         return true
     }
 
+    @discardableResult
+    func handlePinch(magnification: CGFloat, at point: NSPoint) -> Bool {
+        guard magnification.isFinite, magnification > -1, magnification != 0,
+              visibleRect.contains(point), let document, !document.isLocked, document.pageCount > 0 else { return false }
+        let previous = scaleFactor
+        let scale = min(maxScaleFactor, max(minScaleFactor, previous * (1 + magnification)))
+        guard scale != previous else { return false }
+        setManualScale(scale, anchoredAt: point)
+        return scaleFactor != previous
+    }
+
     func setManualScale(_ scale: CGFloat, anchoredAt point: NSPoint? = nil) {
         guard scale.isFinite, scale > 0 else { return }
         let page = point.flatMap { self.page(for: $0, nearest: true) }

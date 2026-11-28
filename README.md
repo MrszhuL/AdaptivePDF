@@ -4,13 +4,13 @@
 
 使用 Swift、AppKit、PDFKit、Core Graphics 与 qpdf 构建，文件在本机处理，无需注册账号。
 
-**当前版本：1.0.0 预览版（build 17）。** 安装包采用本地 ad-hoc 签名，尚未完成 Developer ID 签名和 Apple 公证。
+**当前版本：1.0.0 预览版（build 21）。** 安装包采用本地 ad-hoc 签名，尚未完成 Developer ID 签名和 Apple 公证。
 
 ## 下载
 
-- [下载 macOS 安装包（DMG）](https://github.com/MrszhuL/AdaptivePDF/releases/download/v1.0.0-build17/AdaptivePDF.dmg)
-- [下载应用压缩包（ZIP）](https://github.com/MrszhuL/AdaptivePDF/releases/download/v1.0.0-build17/AdaptivePDF-macOS.zip)
-- [版本说明、源码与 SHA256 校验文件](https://github.com/MrszhuL/AdaptivePDF/releases/tag/v1.0.0-build17)
+- [下载 macOS 安装包（DMG）](https://github.com/MrszhuL/AdaptivePDF/releases/download/v1.0.0-build21/AdaptivePDF.dmg)
+- [下载应用压缩包（ZIP）](https://github.com/MrszhuL/AdaptivePDF/releases/download/v1.0.0-build21/AdaptivePDF-macOS.zip)
+- [版本说明、源码与 SHA256 校验文件](https://github.com/MrszhuL/AdaptivePDF/releases/tag/v1.0.0-build21)
 
 两个安装包包含相同的 Universal 应用。普通使用者下载 DMG 即可，无需安装 Xcode、Python 或 qpdf。
 
@@ -78,6 +78,7 @@ build 15 补齐印刷 PDF 常用的 Separation、DeviceN、Indexed 与 Lab 实�
 | 切换主题 | 工具栏的跟随系统 / 浅色 / 深色阅读 |
 | 搜索全文 | `⌘F`；`⌘G` / `⌘⇧G` 切换匹配项 |
 | 放大 / 缩小 | `⌘=` / `⌘-` |
+| 后台触控板缩放 | 光标悬停在露出的 PDF 正文上，双指张开或收拢 |
 | 实际大小 / 适合页面 / 适合宽度 | `⌘0` / `⌘9` / `⌘8` |
 | 跳转页码 | `⌘L` |
 | 高亮文字 | 选择文字、选择颜色，再按 `⌘⇧H` |
@@ -87,13 +88,15 @@ build 15 补齐印刷 PDF 常用的 Separation、DeviceN、Indexed 与 Lab 实�
 | 保存 / 另存为 | `⌘S` / `⌘⇧S` |
 | 撤销 / 重做 | `⌘Z` / `⌘⇧Z` |
 
+后台缩放需要 macOS 的「输入监控」权限。可通过「显示 → 启用后台捏合缩放…」进入授权流程。授权后重开 AdaptivePDF，其他 App 保持前台时也可以直接捏合缩放。使用临时签名的构建升级后可能需要重新授权。
+
 ## 当前验证范围与限制
 
-- Debug 和优化配置下各通过 158 项主集成断言、10 个关闭/退出场景（60 项断言）以及 9 种主题/策略重启组合（105 项断言）。
+- Debug 和优化配置的集成、关闭/退出，以及主题重启结果见发布页的 `release-manifest.json`。后台双指张开和收拢已在本机用实体触控板验证。
 - 图片保色覆盖 RGB、灰度、CMYK、ICC、透明遮罩、普通透明度、内联图片、嵌套/重复 Form、裁切和旋转；17 个图片区域和 5 个完整矢量插图区域均通过颜色检查。整图比较包含内部文字、路径、灰度格、透明混合、缩放旋转与不同继承颜色，最大像素差为 0。
 - 额外的原生界面检查覆盖三种窗口布局、38 点单行工具栏、四色弹出面板、高亮按钮状态，以及选色后的高亮修改与撤销/重做。
 - 缩略图包含 26 项回归断言，覆盖主题切换、9 处图片颜色采样、旋转裁切、双向跳页、批注刷新和加密 PDF。
-- 三篇真实论文、400 页生成文档和 24 页扫描件共 490 页，已执行结构、保存与重开回归。
+- 历史版本的多文档回归覆盖真实论文、400 页生成文档和 24 页扫描件，具体范围见 [测试记录](TESTING.md)。
 - 完整硬件鼠标/键盘流程、实际窗口像素验收、Preview 交互、Apple 芯片真机与下载隔离环境的 Gatekeeper 验收尚未全部完成。
 - 加密 PDF 和含已有数字签名的 PDF 仅供阅读。OCR、iCloud 同步、iPad 版和复杂联动表单暂未支持。
 
